@@ -3,7 +3,7 @@ import wave
 import logging
 import subprocess
 from moviepy import *
-from moviepy.editor import VideoFileClip, CompositeVideoClip, ImageClip
+from moviepy.editor import *
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from vosk import Model, KaldiRecognizer, SetLogLevel
