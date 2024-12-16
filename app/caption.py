@@ -106,14 +106,36 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
 
         # Step 4: Add subtitles to video
         logging.info("Adding subtitles to video...")
-        ffmpeg_command = (
-            f'ffmpeg -hide_banner -y -i "{input_path}" -vf '
-            f'subtitles="{srt_path}":force_style=\'FontName={font_path},'
-            f'FontSize={font_size},MarginV={y_offset}\' '
-            f'-c:a copy "{output_path}"'
+        
+        # Escape paths for ffmpeg
+        input_path_esc = input_path.replace('"', '\\"')
+        output_path_esc = output_path.replace('"', '\\"')
+        srt_path_esc = srt_path.replace('"', '\\"')
+        font_path_esc = font_path.replace('"', '\\"')
+
+        # Construct subtitle filter with proper escaping
+        subtitle_filter = f"subtitles={srt_path_esc}:force_style='Fontname={font_path_esc},FontSize={font_size},MarginV={y_offset}'"
+        
+        ffmpeg_command = [
+            'ffmpeg',
+            '-hide_banner',
+            '-y',
+            '-i', input_path,
+            '-vf', subtitle_filter,
+            '-c:a', 'copy',
+            output_path
+        ]
+        
+        # Run ffmpeg with subprocess list instead of shell=True
+        result = subprocess.run(
+            ffmpeg_command,
+            capture_output=True,
+            text=True
         )
         
-        subprocess.run(ffmpeg_command, shell=True, check=True, capture_output=True)
+        if result.returncode != 0:
+            logging.error(f"FFmpeg error: {result.stderr}")
+            raise Exception(f"FFmpeg error: {result.stderr}")
 
         # Verify output file exists and has size > 0
         if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
@@ -133,6 +155,9 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
                 os.remove(audio_path)
             if os.path.exists(srt_path):
                 os.remove(srt_path)
+            os.rmdir(temp_dir)
+        except Exception as e:
+            logging.error(f"Cleanup error: {str(e)}")
             os.rmdir(temp_dir)
         except Exception as e:
             logging.error(f"Cleanup error: {str(e)}")
