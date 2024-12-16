@@ -159,11 +159,10 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
                  font_size: int = 200, y_offset: int = 700) -> bool:
     """Process video with subtitles using FFmpeg"""
     try:
-        # Create debug directory in the current working directory
+        # Create debug directory
         debug_dir = "/app/debug_files"
         os.makedirs(debug_dir, exist_ok=True)
         
-        # Use fixed paths for debugging
         audio_path = os.path.join(debug_dir, "debug_audio.wav")
         srt_path = os.path.join(debug_dir, "debug_subtitles.srt")
 
@@ -179,25 +178,80 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
         if not create_subtitle_file(word_timings, srt_path):
             raise Exception("Failed to create subtitle file")
 
-        # Try without custom font first
-        subtitle_filter = f"subtitles={srt_path}:force_style='FontSize={font_size},MarginV={y_offset}'"
-        
+        # More aggressive subtitle styling
+        subtitle_filter = (
+            f"subtitles={srt_path}:force_style='"
+            f"FontSize={font_size},"
+            f"MarginV={y_offset},"
+            "PrimaryColour=&Hffffff,"  # White text
+            "OutlineColour=&H000000,"  # Black outline
+            "BorderStyle=3,"           # Opaque box
+            "Outline=3,"               # Thicker outline
+            "Shadow=0,"                # No shadow
+            "Bold=1"                   # Bold text
+            "'"
+        )
+
+        # Add -v debug to see detailed FFmpeg output
         command = [
+            'ffmpeg',
+            '-hide_banner',
+            '-v', 'debug',  # Detailed logging
+            '-y',
+            '-i', input_path,
             '-vf', subtitle_filter,
             '-c:a', 'copy',
             output_path
         ]
         
-        if not run_ffmpeg_command(command, input_path, output_path, "subtitle burning"):
-            raise Exception("Failed to add subtitles to video")
+        # Run FFmpeg with full output capture
+        try:
+            logging.debug(f"Running FFmpeg command: {' '.join(command)}")
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL
+            )
+            
+            stdout, stderr = process.communicate()
+            
+            # Save FFmpeg output to debug files
+            with open(os.path.join(debug_dir, "ffmpeg_stdout.log"), "wb") as f:
+                f.write(stdout)
+            with open(os.path.join(debug_dir, "ffmpeg_stderr.log"), "wb") as f:
+                f.write(stderr)
+                
+            if process.returncode != 0:
+                logging.error("FFmpeg failed")
+                stderr_str = stderr.decode('utf-8', errors='ignore')
+                logging.error(f"FFmpeg error: {stderr_str}")
+                return False
 
-        logging.info(f"Debug files saved to {debug_dir}")
-        logging.info("Video processing completed successfully")
-        return True
+            if not os.path.exists(output_path):
+                logging.error("Output file was not created")
+                return False
+
+            # Verify SRT file content
+            with open(srt_path, 'r', encoding='utf-8') as f:
+                srt_content = f.read()
+                logging.debug(f"SRT file content preview:\n{srt_content[:500]}")
+
+            logging.info("Video processing completed successfully")
+            return True
+
+        except Exception as e:
+            logging.error(f"FFmpeg execution failed: {str(e)}")
+            return False
 
     except Exception as e:
         logging.error(f"Error processing video: {str(e)}")
         return False
+
+# Helper function to escape paths for FFmpeg
+def escape_path(path):
+    """Escape path for FFmpeg"""
+    return path.replace(":", "\\:").replace("'", "'\\''")
 
 def format_time(seconds: float) -> str:
     """Convert seconds to SRT time format"""
