@@ -9,7 +9,7 @@ app = FastAPI()
 
 # Constants
 MODEL_PATH = "/app/vosk-model-en-us-0.22"
-FONT_PATH = "/fonts/Lexend-Bold.ttf"
+FONT_PATH = "/app/fonts/Lexend-Bold.ttf"
 
 @app.post("/caption/")
 async def create_caption(
