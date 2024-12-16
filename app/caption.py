@@ -29,7 +29,7 @@ def verify_file_exists(path: str, description: str) -> bool:
     return True
 
 def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700) -> str:
-    """Create FFmpeg drawtext filter commands for each word"""
+    """Create FFmpeg drawtext filter commands for each word with outlined text"""
     filters = []
     
     for word in word_timings:
@@ -38,7 +38,7 @@ def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 
         text = word['word'].replace("'", "'\\\\\\''")  # Escape single quotes
         
         filter_text = f"drawtext=fontfile={font_path}:text='{text}':fontsize={font_size}:"
-        filter_text += f"fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5:"
+        filter_text += f"fontcolor=white:bordercolor=black:borderw=3:"  # Changed from box to border
         filter_text += f"x=(w-text_w)/2:y={y_offset}:"
         filter_text += f"enable='between(t,{start_time},{end_time})'"
         
