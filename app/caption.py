@@ -77,40 +77,52 @@ def create_caption_clips(word_timings, video_width, video_height, font_path, fon
 
     for word in word_timings:
         img_array = create_text_image(word['word'], (video_width, 120), font_size, (255, 255, 255, 255), font_path)
-        # Create the clip with position directly in constructor
-        clip = ImageClip(img_array, duration=word['end'] - word['start']).set_start(word['start'])
-        # Set position using pos parameter
-        clip.pos = lambda t: ('center', video_height - y_offset)
+        # Create clip with just the duration first
+        clip = ImageClip(img_array)
+        # Set duration and start time separately
+        clip.duration = word['end'] - word['start']
+        clip.start = word['start']
+        # Set position
+        clip.pos = (video_width//2, video_height - y_offset)
         caption_clips.append(clip)
     
     return caption_clips
 
 def process_video(input_path, output_path, model_path, font_path, font_size=200, y_offset=700):
-    # Extract audio
-    audio_path = "temp_audio.wav"
-    extract_audio(input_path, audio_path)
-    
-    # Transcribe audio
-    word_timings = transcribe_audio(audio_path, model_path)
-    
-    if not word_timings:
-        logging.error("No words were transcribed.")
-        return False
-
     try:
+        # Extract audio
+        audio_path = "temp_audio.wav"
+        extract_audio(input_path, audio_path)
+        
+        # Transcribe audio
+        word_timings = transcribe_audio(audio_path, model_path)
+        
+        if not word_timings:
+            logging.error("No words were transcribed.")
+            return False
+
         # Create caption clips
         video = VideoFileClip(input_path)
         caption_clips = create_caption_clips(word_timings, video.w, video.h, font_path, font_size, y_offset)
         
         # Overlay captions
-        final_video = CompositeVideoClip([video] + caption_clips)
-        final_video.write_videofile(output_path)
+        final_video = CompositeVideoClip([video] + caption_clips, size=(video.w, video.h))
+        
+        # Write video file with explicit codec settings
+        final_video.write_videofile(
+            output_path,
+            codec='libx264',
+            audio_codec='aac',
+            temp_audiofile='temp-audio.m4a',
+            remove_temp=True
+        )
         
         # Cleanup
         os.remove(audio_path)
         video.close()
         final_video.close()
         return True
+        
     except Exception as e:
         logging.error(f"Error processing video: {str(e)}")
         # Cleanup in case of error
