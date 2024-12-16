@@ -5,3 +5,4 @@ vosk
 numpy
 Pillow
 python-dotenv
+aiofiles
