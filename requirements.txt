@@ -1,0 +1,7 @@
+fastapi
+python-multipart
+uvicorn
+moviepy
+vosk
+pillow
+numpy

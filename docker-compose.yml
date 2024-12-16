@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  caption-service:
+    build: .
+    ports:
+      - "8467:8080"
+    volumes:
+      - ./fonts:/app/fonts
+    environment:
+      - MAX_WORKERS=1  # Adjust based on your server's capabilities
+    deploy:
+      resources:
+        limits:
+          memory: 4G  # Adjust based on your needs
+        reservations:
+          memory: 2G
+    restart: unless-stopped
