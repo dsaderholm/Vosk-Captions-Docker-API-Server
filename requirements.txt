@@ -1,7 +1,6 @@
 fastapi==0.68.1
 python-multipart
 uvicorn
-moviepy
 vosk
 numpy
 Pillow
