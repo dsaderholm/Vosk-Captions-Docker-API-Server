@@ -17,29 +17,47 @@ def extract_audio(video_path, audio_path):
     if os.path.exists(audio_path):
         os.remove(audio_path)
     
+    # Full explicit path for output
+    audio_path_abs = os.path.abspath(audio_path)
+    video_path_abs = os.path.abspath(video_path)
+    
     command = [
         "ffmpeg",
-        "-y",  # Overwrite output file if it exists
-        "-i", video_path,
-        "-vn",  # No video
+        "-y",
+        "-i", video_path_abs,
+        "-vn",
         "-acodec", "pcm_s16le",
         "-ac", "1",
         "-ar", "16000",
-        audio_path
+        "-f", "wav",  # Force WAV format
+        audio_path_abs
     ]
     
     try:
-        logging.info(f"Running ffmpeg command: {' '.join(command)}")
-        result = subprocess.run(
-            command,
-            check=True,
-            capture_output=True,
+        # Use shell=True for Windows and redirect stderr to stdout
+        process = subprocess.Popen(
+            ' '.join(command),
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True
         )
-        logging.info("Audio extraction completed successfully")
+        
+        # Wait for the process to complete
+        output, _ = process.communicate()
+        
+        if process.returncode != 0:
+            logging.error(f"FFmpeg failed with output: {output}")
+            return False
+            
+        if not os.path.exists(audio_path_abs):
+            logging.error("Audio file was not created")
+            return False
+            
         return True
-    except subprocess.CalledProcessError as e:
-        logging.error(f"FFmpeg error: {e.stderr}")
+        
+    except Exception as e:
+        logging.error(f"Exception during audio extraction: {str(e)}")
         return False
 
 def transcribe_audio(audio_path, model_path):
