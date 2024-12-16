@@ -1,8 +1,8 @@
-import os
-import tempfile
-from fastapi import FastAPI, UploadFile, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException  # Add File import
 from fastapi.responses import FileResponse
 from app.caption import process_video
+import os
+import tempfile
 
 app = FastAPI()
 
@@ -12,7 +12,7 @@ FONT_PATH = "/app/fonts/Lexend-Bold.ttf"
 
 @app.post("/caption/")
 async def create_caption(
-    video: UploadFile,
+    video: UploadFile = File(...),  # Changed this line to use File(...)
     font_size: int = Form(200),
     y_offset: int = Form(700)
 ):
