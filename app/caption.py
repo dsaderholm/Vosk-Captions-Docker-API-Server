@@ -6,36 +6,70 @@ import subprocess
 from vosk import Model, KaldiRecognizer, SetLogLevel
 from PIL import Image, ImageDraw, ImageFont
 import tempfile
+import sys
+
+# Configure logging to file instead of stdout
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('caption_service.log'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+def run_ffmpeg_command(command, input_file=None):
+    """
+    Run FFmpeg command with proper output handling
+    """
+    try:
+        # Create a complete command list
+        cmd_list = ['ffmpeg', '-hide_banner', '-y']
+        if input_file:
+            cmd_list.extend(['-i', input_file])
+        cmd_list.extend(command)
+
+        # Run FFmpeg with all output properly redirected
+        process = subprocess.Popen(
+            cmd_list,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL
+        )
+        
+        # Wait for the process to complete without reading output
+        process.wait()
+        
+        if process.returncode != 0:
+            # Only read stderr if there was an error
+            error = process.stderr.read().decode('utf-8', errors='ignore')
+            logging.error(f"FFmpeg error: {error}")
+            return False
+            
+        return True
+        
+    except Exception as e:
+        logging.error(f"FFmpeg command failed: {str(e)}")
+        return False
 
 def extract_audio(video_path: str, audio_path: str) -> bool:
     """Extract audio from video file"""
     try:
-        # Redirect FFmpeg output to DEVNULL to prevent binary data in terminal
         command = [
-            'ffmpeg',
-            '-hide_banner',
-            '-y',
-            '-i', video_path,
             '-vn',
             '-acodec', 'pcm_s16le',
             '-ac', '1',
             '-ar', '16000',
             audio_path
         ]
-        subprocess.run(
-            command,
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        return os.path.exists(audio_path)
-    except subprocess.CalledProcessError as e:
+        return run_ffmpeg_command(command, video_path)
+    except Exception as e:
         logging.error(f"Audio extraction failed: {str(e)}")
         return False
 
 def transcribe_audio(audio_path: str, model_path: str) -> list:
     """Transcribe audio file to get word timings"""
-    SetLogLevel(0)
+    SetLogLevel(-1)  # Suppress Vosk debug output
     
     if not os.path.exists(audio_path):
         logging.error("Audio file not found")
@@ -72,6 +106,9 @@ def transcribe_audio(audio_path: str, model_path: str) -> list:
     except Exception as e:
         logging.error(f"Transcription failed: {str(e)}")
         return []
+    finally:
+        if 'wf' in locals():
+            wf.close()
 
 def create_subtitle_file(word_timings: list, output_path: str) -> bool:
     """Create an SRT subtitle file from word timings"""
@@ -94,10 +131,11 @@ def format_time(seconds: float) -> str:
     milliseconds = int((seconds % 1) * 1000)
     seconds = int(seconds)
     return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
-
+    
 def process_video(input_path: str, output_path: str, model_path: str, font_path: str, 
                  font_size: int = 200, y_offset: int = 700) -> bool:
     """Process video with subtitles using FFmpeg"""
+    temp_dir = None
     try:
         # Create temporary files
         temp_dir = tempfile.mkdtemp()
@@ -123,30 +161,16 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
         # Step 4: Add subtitles to video
         logging.info("Adding subtitles to video...")
         
-        # Construct FFmpeg command as list
-        ffmpeg_command = [
-            'ffmpeg',
-            '-hide_banner',
-            '-y',
-            '-i', input_path,
-            '-vf', f"subtitles={srt_path}:force_style='Fontname={font_path},FontSize={font_size},MarginV={y_offset}'",
+        subtitle_filter = f"subtitles={srt_path}:force_style='Fontname={font_path},FontSize={font_size},MarginV={y_offset}'"
+        command = [
+            '-vf', subtitle_filter,
             '-c:a', 'copy',
             output_path
         ]
         
-        # Run ffmpeg with redirected output
-        result = subprocess.run(
-            ffmpeg_command,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        
-        if result.returncode != 0:
-            logging.error(f"FFmpeg error: {result.stderr}")
-            raise Exception(f"FFmpeg error: {result.stderr}")
+        if not run_ffmpeg_command(command, input_path):
+            raise Exception("Failed to add subtitles to video")
 
-        # Verify output file exists and has size > 0
         if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
             raise Exception("Output file was not created successfully")
 
@@ -159,11 +183,12 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
         
     finally:
         # Cleanup temporary files
-        try:
-            if os.path.exists(audio_path):
-                os.remove(audio_path)
-            if os.path.exists(srt_path):
-                os.remove(srt_path)
-            os.rmdir(temp_dir)
-        except Exception as e:
-            logging.error(f"Cleanup error: {str(e)}")
+        if temp_dir and os.path.exists(temp_dir):
+            try:
+                for filename in os.listdir(temp_dir):
+                    filepath = os.path.join(temp_dir, filename)
+                    if os.path.exists(filepath):
+                        os.remove(filepath)
+                os.rmdir(temp_dir)
+            except Exception as e:
+                logging.error(f"Cleanup error: {str(e)}")
