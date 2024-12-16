@@ -1,8 +1,8 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException  # Add File import
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse
-from app.caption import process_video
 import os
 import tempfile
+import asyncio
 
 app = FastAPI()
 
@@ -12,7 +12,7 @@ FONT_PATH = "/app/fonts/Lexend-Bold.ttf"
 
 @app.post("/caption/")
 async def create_caption(
-    video: UploadFile = File(...),  # Changed this line to use File(...)
+    video: UploadFile = File(...),
     font_size: int = Form(200),
     y_offset: int = Form(700)
 ):
@@ -20,13 +20,14 @@ async def create_caption(
         raise HTTPException(status_code=400, detail="Unsupported file format")
     
     # Create temporary files for processing
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(video.filename)[1]) as temp_input, \
-         tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_output:
-        
+    temp_input = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(video.filename)[1])
+    temp_output = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+    
+    try:
         # Save uploaded video
         content = await video.read()
         temp_input.write(content)
-        temp_input.flush()
+        temp_input.close()
         
         # Process video
         success = process_video(
@@ -41,20 +42,28 @@ async def create_caption(
         if not success:
             raise HTTPException(status_code=500, detail="Failed to process video")
         
+        # Create async cleanup function
+        async def cleanup():
+            await asyncio.sleep(0)  # Ensure this runs after response is sent
+            try:
+                os.unlink(temp_input.name)
+                os.unlink(temp_output.name)
+            except Exception as e:
+                print(f"Cleanup error: {e}")
+        
         # Return processed video
-        response = FileResponse(
+        return FileResponse(
             temp_output.name,
             media_type="video/mp4",
-            filename=f"captioned_{video.filename}"
+            filename=f"captioned_{video.filename}",
+            background=cleanup
         )
-        
-        # Schedule cleanup
-        def cleanup():
-            os.unlink(temp_input.name)
-            os.unlink(temp_output.name)
-        
-        response.background = cleanup
-        return response
+            
+    except Exception as e:
+        # Clean up in case of error
+        os.unlink(temp_input.name)
+        os.unlink(temp_output.name)
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
