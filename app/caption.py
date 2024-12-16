@@ -10,11 +10,27 @@ import tempfile
 def extract_audio(video_path: str, audio_path: str) -> bool:
     """Extract audio from video file"""
     try:
-        command = f'ffmpeg -hide_banner -y -i "{video_path}" -vn -acodec pcm_s16le -ac 1 -ar 16000 "{audio_path}"'
-        subprocess.run(command, shell=True, check=True, capture_output=True)
+        # Redirect FFmpeg output to DEVNULL to prevent binary data in terminal
+        command = [
+            'ffmpeg',
+            '-hide_banner',
+            '-y',
+            '-i', video_path,
+            '-vn',
+            '-acodec', 'pcm_s16le',
+            '-ac', '1',
+            '-ar', '16000',
+            audio_path
+        ]
+        subprocess.run(
+            command,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
         return os.path.exists(audio_path)
     except subprocess.CalledProcessError as e:
-        logging.error(f"Audio extraction failed: {e.stderr.decode() if e.stderr else str(e)}")
+        logging.error(f"Audio extraction failed: {str(e)}")
         return False
 
 def transcribe_audio(audio_path: str, model_path: str) -> list:
@@ -107,29 +123,22 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
         # Step 4: Add subtitles to video
         logging.info("Adding subtitles to video...")
         
-        # Escape paths for ffmpeg
-        input_path_esc = input_path.replace('"', '\\"')
-        output_path_esc = output_path.replace('"', '\\"')
-        srt_path_esc = srt_path.replace('"', '\\"')
-        font_path_esc = font_path.replace('"', '\\"')
-
-        # Construct subtitle filter with proper escaping
-        subtitle_filter = f"subtitles={srt_path_esc}:force_style='Fontname={font_path_esc},FontSize={font_size},MarginV={y_offset}'"
-        
+        # Construct FFmpeg command as list
         ffmpeg_command = [
             'ffmpeg',
             '-hide_banner',
             '-y',
             '-i', input_path,
-            '-vf', subtitle_filter,
+            '-vf', f"subtitles={srt_path}:force_style='Fontname={font_path},FontSize={font_size},MarginV={y_offset}'",
             '-c:a', 'copy',
             output_path
         ]
         
-        # Run ffmpeg with subprocess list instead of shell=True
+        # Run ffmpeg with redirected output
         result = subprocess.run(
             ffmpeg_command,
-            capture_output=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             text=True
         )
         
@@ -155,9 +164,6 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
                 os.remove(audio_path)
             if os.path.exists(srt_path):
                 os.remove(srt_path)
-            os.rmdir(temp_dir)
-        except Exception as e:
-            logging.error(f"Cleanup error: {str(e)}")
             os.rmdir(temp_dir)
         except Exception as e:
             logging.error(f"Cleanup error: {str(e)}")
