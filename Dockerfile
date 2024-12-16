@@ -6,19 +6,14 @@ RUN apt-get update && apt-get install -y \
     libsm6 \
     libxext6 \
     libgl1-mesa-glx \
-    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# Install moviepy directly from git
-RUN pip install git+https://github.com/Zulko/moviepy.git
-
-# Copy and install other requirements
+# Copy requirements first to leverage Docker cache
 COPY requirements.txt .
-RUN grep -v "moviepy" requirements.txt > temp_requirements.txt && \
-    pip install --no-cache-dir -r temp_requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Download Vosk model
 RUN mkdir -p /app/vosk-model-en-us-0.22 && \
