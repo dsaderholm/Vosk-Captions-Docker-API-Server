@@ -1,8 +1,9 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException  # Add File import
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse
 from app.caption import process_video
 import os
 import tempfile
+import asyncio
 
 app = FastAPI()
 
@@ -12,7 +13,7 @@ FONT_PATH = "/app/fonts/Lexend-Bold.ttf"
 
 @app.post("/caption/")
 async def create_caption(
-    video: UploadFile = File(...),  # Changed this line to use File(...)
+    video: UploadFile = File(...),
     font_size: int = Form(200),
     y_offset: int = Form(700)
 ):
@@ -39,21 +40,31 @@ async def create_caption(
         )
         
         if not success:
+            # Clean up files before raising exception
+            os.unlink(temp_input.name)
+            os.unlink(temp_output.name)
             raise HTTPException(status_code=500, detail="Failed to process video")
         
-        # Return processed video
+        # Create async cleanup function
+        async def cleanup_files():
+            try:
+                # Use asyncio to run file deletion in a thread pool
+                await asyncio.get_event_loop().run_in_executor(
+                    None, os.unlink, temp_input.name
+                )
+                await asyncio.get_event_loop().run_in_executor(
+                    None, os.unlink, temp_output.name
+                )
+            except Exception as e:
+                print(f"Cleanup error: {str(e)}")
+
         response = FileResponse(
             temp_output.name,
             media_type="video/mp4",
             filename=f"captioned_{video.filename}"
         )
         
-        # Schedule cleanup
-        def cleanup():
-            os.unlink(temp_input.name)
-            os.unlink(temp_output.name)
-        
-        response.background = cleanup
+        response.background = cleanup_files
         return response
 
 if __name__ == "__main__":
