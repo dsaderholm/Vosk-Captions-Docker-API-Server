@@ -2,6 +2,7 @@ import os
 import wave
 import logging
 import subprocess
+from moviepy import *
 from moviepy.editor import VideoFileClip, CompositeVideoClip, ImageClip
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
