@@ -1,0 +1,8 @@
+version: '3.8'
+
+services:
+  caption-api:
+    build: .
+    ports:
+      - "8893:8080"
+    restart: unless-stopped
