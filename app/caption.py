@@ -28,6 +28,24 @@ def verify_file_exists(path: str, description: str) -> bool:
     logging.debug(f"{description} file verified at {path} with size {os.path.getsize(path)}")
     return True
 
+def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700) -> str:
+    """Create FFmpeg drawtext filter commands for each word"""
+    filters = []
+    
+    for word in word_timings:
+        start_time = word['start']
+        end_time = word['end']
+        text = word['word'].replace("'", "'\\\\\\''")  # Escape single quotes
+        
+        filter_text = f"drawtext=fontfile={font_path}:text='{text}':fontsize={font_size}:"
+        filter_text += f"fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5:"
+        filter_text += f"x=(w-text_w)/2:y={y_offset}:"
+        filter_text += f"enable='between(t,{start_time},{end_time})'"
+        
+        filters.append(filter_text)
+    
+    return ','.join(filters)
+
 def run_ffmpeg_command(command, input_file=None, output_file=None, description="FFmpeg operation"):
     """Run FFmpeg command with detailed logging"""
     try:
@@ -157,15 +175,14 @@ def create_subtitle_file(word_timings: list, output_path: str) -> bool:
 
 def process_video(input_path: str, output_path: str, model_path: str, font_path: str, 
                  font_size: int = 200, y_offset: int = 700) -> bool:
-    """Process video with subtitles using FFmpeg"""
+    """Process video with subtitles using FFmpeg drawtext"""
     try:
         # Create debug directory
         debug_dir = "/app/debug_files"
         os.makedirs(debug_dir, exist_ok=True)
         
         audio_path = os.path.join(debug_dir, "debug_audio.wav")
-        srt_path = os.path.join(debug_dir, "debug_subtitles.srt")
-
+        
         logging.info(f"Debug files will be saved to {debug_dir}")
         
         if not extract_audio(input_path, audio_path):
@@ -175,36 +192,32 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
         if not word_timings:
             raise Exception("No words were transcribed")
 
-        if not create_subtitle_file(word_timings, srt_path):
-            raise Exception("Failed to create subtitle file")
+        # Save word timings for debugging
+        with open(os.path.join(debug_dir, "word_timings.json"), 'w') as f:
+            json.dump(word_timings, f, indent=2)
 
-        # More aggressive subtitle styling
-        subtitle_filter = (
-            f"subtitles={srt_path}:force_style='"
-            f"FontSize={font_size},"
-            f"MarginV={y_offset},"
-            "PrimaryColour=&Hffffff,"  # White text
-            "OutlineColour=&H000000,"  # Black outline
-            "BorderStyle=3,"           # Opaque box
-            "Outline=3,"               # Thicker outline
-            "Shadow=0,"                # No shadow
-            "Bold=1"                   # Bold text
-            "'"
-        )
+        # Create drawtext filter
+        filter_complex = create_drawtext_filter(word_timings, font_path, font_size, y_offset)
+        
+        # Save filter command for debugging
+        with open(os.path.join(debug_dir, "filter_command.txt"), 'w') as f:
+            f.write(filter_complex)
 
-        # Add -v debug to see detailed FFmpeg output
+        # Add debug logging
+        logging.debug(f"First few words to be rendered: {word_timings[:3]}")
+        
         command = [
             'ffmpeg',
-            '-hide_banner',
-            '-v', 'debug',  # Detailed logging
             '-y',
             '-i', input_path,
-            '-vf', subtitle_filter,
+            '-vf', filter_complex,
             '-c:a', 'copy',
+            '-c:v', 'libx264',
+            '-preset', 'medium',
             output_path
         ]
         
-        # Run FFmpeg with full output capture
+        # Run FFmpeg with output capture
         try:
             logging.debug(f"Running FFmpeg command: {' '.join(command)}")
             process = subprocess.Popen(
@@ -216,14 +229,13 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
             
             stdout, stderr = process.communicate()
             
-            # Save FFmpeg output to debug files
+            # Save FFmpeg output
             with open(os.path.join(debug_dir, "ffmpeg_stdout.log"), "wb") as f:
                 f.write(stdout)
             with open(os.path.join(debug_dir, "ffmpeg_stderr.log"), "wb") as f:
                 f.write(stderr)
                 
             if process.returncode != 0:
-                logging.error("FFmpeg failed")
                 stderr_str = stderr.decode('utf-8', errors='ignore')
                 logging.error(f"FFmpeg error: {stderr_str}")
                 return False
@@ -231,11 +243,6 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
             if not os.path.exists(output_path):
                 logging.error("Output file was not created")
                 return False
-
-            # Verify SRT file content
-            with open(srt_path, 'r', encoding='utf-8') as f:
-                srt_content = f.read()
-                logging.debug(f"SRT file content preview:\n{srt_content[:500]}")
 
             logging.info("Video processing completed successfully")
             return True
@@ -254,10 +261,6 @@ def escape_path(path):
     return path.replace(":", "\\:").replace("'", "'\\''")
 
 def format_time(seconds: float) -> str:
-    """Convert seconds to SRT time format"""
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    seconds = seconds % 60
-    milliseconds = int((seconds % 1) * 1000)
-    seconds = int(seconds)
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+    """Convert seconds to timestamp format"""
+    time = datetime.utcfromtimestamp(seconds)
+    return time.strftime('%H\\:%M\\:%S.%f')[:-3]
