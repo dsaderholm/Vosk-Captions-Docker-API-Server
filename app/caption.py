@@ -77,8 +77,10 @@ def create_caption_clips(word_timings, video_width, video_height, font_path, fon
 
     for word in word_timings:
         img_array = create_text_image(word['word'], (video_width, 120), font_size, (255, 255, 255, 255), font_path)
-        clip = ImageClip(img_array, duration=word['end'] - word['start'])
-        clip = clip.set_position(('center', video_height - y_offset)).set_start(word['start'])
+        # Create the clip with position directly in constructor
+        clip = ImageClip(img_array, duration=word['end'] - word['start']).set_start(word['start'])
+        # Set position using pos parameter
+        clip.pos = lambda t: ('center', video_height - y_offset)
         caption_clips.append(clip)
     
     return caption_clips
@@ -95,16 +97,23 @@ def process_video(input_path, output_path, model_path, font_path, font_size=200,
         logging.error("No words were transcribed.")
         return False
 
-    # Create caption clips
-    video = VideoFileClip(input_path)
-    caption_clips = create_caption_clips(word_timings, video.w, video.h, font_path, font_size, y_offset)
-    
-    # Overlay captions
-    final_video = CompositeVideoClip([video] + caption_clips)
-    final_video.write_videofile(output_path)
-    
-    # Cleanup
-    os.remove(audio_path)
-    video.close()
-    final_video.close()
-    return True
+    try:
+        # Create caption clips
+        video = VideoFileClip(input_path)
+        caption_clips = create_caption_clips(word_timings, video.w, video.h, font_path, font_size, y_offset)
+        
+        # Overlay captions
+        final_video = CompositeVideoClip([video] + caption_clips)
+        final_video.write_videofile(output_path)
+        
+        # Cleanup
+        os.remove(audio_path)
+        video.close()
+        final_video.close()
+        return True
+    except Exception as e:
+        logging.error(f"Error processing video: {str(e)}")
+        # Cleanup in case of error
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
+        return False
