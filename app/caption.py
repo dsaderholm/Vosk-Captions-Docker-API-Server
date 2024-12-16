@@ -12,18 +12,35 @@ from vosk import Model, KaldiRecognizer, SetLogLevel
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def extract_audio(video_path, audio_path):
+    logging.info(f"Starting audio extraction from {video_path} to {audio_path}")
+    
     if os.path.exists(audio_path):
         os.remove(audio_path)
     
     command = [
         "ffmpeg",
+        "-y",  # Overwrite output file if it exists
         "-i", video_path,
+        "-vn",  # No video
         "-acodec", "pcm_s16le",
         "-ac", "1",
         "-ar", "16000",
         audio_path
     ]
-    subprocess.run(command, check=True)
+    
+    try:
+        logging.info(f"Running ffmpeg command: {' '.join(command)}")
+        result = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        logging.info("Audio extraction completed successfully")
+        return True
+    except subprocess.CalledProcessError as e:
+        logging.error(f"FFmpeg error: {e.stderr}")
+        return False
 
 def transcribe_audio(audio_path, model_path):
     SetLogLevel(0)
@@ -92,9 +109,18 @@ def process_video(input_path, output_path, model_path, font_path, font_size=200,
     try:
         # Extract audio
         audio_path = "temp_audio.wav"
-        extract_audio(input_path, audio_path)
+        logging.info("Starting video processing...")
         
+        if not extract_audio(input_path, audio_path):
+            logging.error("Audio extraction failed")
+            return False
+            
+        if not os.path.exists(audio_path):
+            logging.error(f"Audio file {audio_path} was not created")
+            return False
+            
         # Transcribe audio
+        logging.info("Starting transcription...")
         word_timings = transcribe_audio(audio_path, model_path)
         
         if not word_timings:
@@ -102,30 +128,38 @@ def process_video(input_path, output_path, model_path, font_path, font_size=200,
             return False
 
         # Create caption clips
+        logging.info("Creating video with captions...")
         video = VideoFileClip(input_path)
         caption_clips = create_caption_clips(word_timings, video.w, video.h, font_path, font_size, y_offset)
         
         # Overlay captions
         final_video = CompositeVideoClip([video] + caption_clips, size=(video.w, video.h))
         
-        # Write video file with explicit codec settings
+        logging.info(f"Writing final video to {output_path}")
         final_video.write_videofile(
             output_path,
             codec='libx264',
             audio_codec='aac',
             temp_audiofile='temp-audio.m4a',
-            remove_temp=True
+            remove_temp=True,
+            logger=None  # Disable moviepy's internal logger
         )
         
         # Cleanup
-        os.remove(audio_path)
+        logging.info("Cleaning up temporary files...")
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
         video.close()
         final_video.close()
+        logging.info("Video processing completed successfully")
         return True
         
     except Exception as e:
         logging.error(f"Error processing video: {str(e)}")
-        # Cleanup in case of error
+        if 'video' in locals():
+            video.close()
+        if 'final_video' in locals():
+            final_video.close()
         if os.path.exists(audio_path):
             os.remove(audio_path)
         return False
