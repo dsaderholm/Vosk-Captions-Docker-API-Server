@@ -4,15 +4,7 @@ services:
   caption-service:
     build: .
     ports:
-      - "8467:8080"
+      - "8278:8000"
     volumes:
-      - ./fonts:/app/fonts
-    environment:
-      - MAX_WORKERS=1  # Adjust based on your server's capabilities
-    deploy:
-      resources:
-        limits:
-          memory: 4G  # Adjust based on your needs
-        reservations:
-          memory: 2G
+      - ./app:/app/app
     restart: unless-stopped
