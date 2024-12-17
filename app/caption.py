@@ -29,19 +29,37 @@ def verify_file_exists(path: str, description: str) -> bool:
     return True
 
 def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700) -> str:
-    """Create FFmpeg drawtext filter commands for each word with bottom-anchored text"""
+    """Create FFmpeg drawtext filter commands for each word with animation effects"""
     filters = []
     
     for word in word_timings:
         start_time = word['start']
         end_time = word['end']
+        duration = end_time - start_time
         text = word['word'].replace("'", "'\\\\\\''")  # Escape single quotes
         
-        filter_text = f"drawtext=fontfile={font_path}:text='{text}':fontsize={font_size}:"
-        filter_text += f"fontcolor=white:bordercolor=black:borderw=3:"
-        # Use text_h to calculate bottom alignment
-        filter_text += f"x=(w-text_w)/2:y=h-{y_offset}-text_h/2:"
-        filter_text += f"enable='between(t,{start_time},{end_time})'"
+        # Create animation timing variables
+        t_rel = f"(t-{start_time})"  # Time relative to word start
+        bounce_duration = min(0.2, duration/2)  # Duration of bounce effect
+        
+        # Scale animation expression (starts at 0.5, bounces to 1.2, settles at 1.0)
+        scale_expr = (
+            f"if(between({t_rel},0,{bounce_duration}),"
+            f"0.5+2.5*{t_rel}/{bounce_duration},"  # Initial expansion
+            f"1+0.2*sin(2*PI*{t_rel}/{bounce_duration}))"  # Bouncy settling
+        )
+        
+        # Slight rotation wobble
+        rotate_expr = f"sin(2*PI*{t_rel})*2"  # 2 degree maximum rotation
+        
+        filter_text = (
+            f"drawtext=fontfile={font_path}:text='{text}':fontsize={font_size}:"
+            f"fontcolor=white:bordercolor=black:borderw=3:"
+            f"x=(w-text_w)/2:y=h-{y_offset}-text_h/2:"
+            # Apply scale and rotation transforms
+            f"transform=scale={scale_expr}:rotate={rotate_expr}:"
+            f"enable='between(t,{start_time},{end_time})'"
+        )
         
         filters.append(filter_text)
     
