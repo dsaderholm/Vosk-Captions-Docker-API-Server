@@ -39,8 +39,8 @@ def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 
         
         filter_text = f"drawtext=fontfile={font_path}:text='{text}':fontsize={font_size}:"
         filter_text += f"fontcolor=white:bordercolor=black:borderw=3:"
-        # Changed positioning to be relative to bottom and set line height
-        filter_text += f"x=(w-text_w)/2:y=h-{y_offset}:line_h={font_size}:"
+        # Use text_h to calculate bottom alignment
+        filter_text += f"x=(w-text_w)/2:y=h-{y_offset}-text_h/2:"
         filter_text += f"enable='between(t,{start_time},{end_time})'"
         
         filters.append(filter_text)
