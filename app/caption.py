@@ -29,10 +29,10 @@ def verify_file_exists(path: str, description: str) -> bool:
     return True
 
 def create_animated_filter_file(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700, filter_path: str = "filter.txt") -> bool:
-    """Create FFmpeg filter file for animated captions"""
+    """Create FFmpeg filter file for animated captions using scale and rotate filters"""
     try:
         with open(filter_path, 'w') as f:
-            # Start the complex filtergraph
+            # Start with base video
             f.write("[0:v]\n")
             
             # Create filter chain for each word
@@ -46,32 +46,26 @@ def create_animated_filter_file(word_timings: list, font_path: str, font_size: i
                 bounce_duration = min(0.2, duration/2)
                 t_rel = f"(t-{start_time})"
                 
-                # Scale animation
+                # Scale expression
                 scale_expr = (
-                    f"if(between({t_rel},0,{bounce_duration}),"
+                    f"'if(between({t_rel},0,{bounce_duration}),"
                     f"0.5+2.5*{t_rel}/{bounce_duration},"
                     f"1+0.2*sin(2*PI*{t_rel}/{bounce_duration}))"
                 )
                 
-                # Rotation animation
-                rotate_expr = f"sin(2*PI*{t_rel})*2"
+                # Rotation expression
+                rotate_expr = f"'if(between({t_rel},0,{duration}),sin(2*PI*{t_rel})*2,0)'"
                 
-                # Write filter for this word
-                filter_text = (
-                    f"drawtext=fontfile={font_path}:text='{text}':"
-                    f"fontsize={font_size}:fontcolor=white:bordercolor=black:borderw=3:"
-                    f"x=(w-text_w)/2:y=h-{y_offset}-text_h/2:"
-                    f"transform=scale={scale_expr}:rotate={rotate_expr}:"
-                    f"enable='between(t,{start_time},{end_time})'"
-                )
+                # Generate text
+                f.write(f"drawtext=fontfile={font_path}:text='{text}':"
+                       f"fontsize={font_size}:fontcolor=white:bordercolor=black:borderw=3:"
+                       f"x=(w-text_w)/2:y=h-{y_offset}-text_h/2:"
+                       f"enable='between(t,{start_time},{end_time})'")
                 
-                # Add this filter to the chain
-                f.write(filter_text)
-                
-                # Add separator between filters
+                # Add comma if not the last word
                 if i < len(word_timings) - 1:
                     f.write(",\n")
-                
+            
             # End the filtergraph
             f.write("\n[v]")
             
