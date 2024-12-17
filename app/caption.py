@@ -30,6 +30,9 @@ def verify_file_exists(path: str, description: str) -> bool:
 
 def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700) -> str:
     """Create FFmpeg drawtext filter commands for each word with outlined text"""
+    # Log the received parameters
+    logging.debug(f"Creating drawtext filter with font_size={font_size}, y_offset={y_offset}")
+    
     filters = []
     
     for word in word_timings:
@@ -37,12 +40,19 @@ def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 
         end_time = word['end']
         text = word['word'].replace("'", "'\\\\\\''")  # Escape single quotes
         
+        # Create the filter with explicit y position
+        y_position = f"y={y_offset}"  # Ensure y_offset is being used directly
+        
         filter_text = f"drawtext=fontfile={font_path}:text='{text}':fontsize={font_size}:"
-        filter_text += f"fontcolor=white:bordercolor=black:borderw=3:"  # Changed from box to border
-        filter_text += f"x=(w-text_w)/2:y={y_offset}:"
+        filter_text += f"fontcolor=white:bordercolor=black:borderw=3:"
+        filter_text += f"x=(w-text_w)/2:{y_position}:"  # Explicit y position
         filter_text += f"enable='between(t,{start_time},{end_time})'"
         
         filters.append(filter_text)
+        
+        # Log the first filter to verify the y_offset is included correctly
+        if len(filters) == 1:
+            logging.debug(f"Sample filter command: {filter_text}")
     
     return ','.join(filters)
 
@@ -173,10 +183,14 @@ def create_subtitle_file(word_timings: list, output_path: str) -> bool:
         logging.error(f"Failed to create subtitle file: {str(e)}")
         return False
 
+
 def process_video(input_path: str, output_path: str, model_path: str, font_path: str, 
                  font_size: int = 200, y_offset: int = 700) -> bool:
     """Process video with subtitles using FFmpeg drawtext"""
     try:
+        # Log received parameters
+        logging.info(f"Processing video with font_size={font_size}, y_offset={y_offset}")
+        
         # Create debug directory
         debug_dir = "/app/debug_files"
         os.makedirs(debug_dir, exist_ok=True)
@@ -192,20 +206,21 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
         if not word_timings:
             raise Exception("No words were transcribed")
 
-        # Save word timings for debugging
-        with open(os.path.join(debug_dir, "word_timings.json"), 'w') as f:
-            json.dump(word_timings, f, indent=2)
-
         # Create drawtext filter
-        filter_complex = create_drawtext_filter(word_timings, font_path, font_size, y_offset)
+        filter_complex = create_drawtext_filter(
+            word_timings, 
+            font_path, 
+            font_size=int(font_size),  # Ensure these are integers
+            y_offset=int(y_offset)
+        )
         
         # Save filter command for debugging
         with open(os.path.join(debug_dir, "filter_command.txt"), 'w') as f:
             f.write(filter_complex)
+            f.write("\n\nParameters:\n")
+            f.write(f"font_size: {font_size}\n")
+            f.write(f"y_offset: {y_offset}\n")
 
-        # Add debug logging
-        logging.debug(f"First few words to be rendered: {word_timings[:3]}")
-        
         command = [
             'ffmpeg',
             '-y',
@@ -217,9 +232,11 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
             output_path
         ]
         
+        # Log the full command
+        logging.debug(f"FFmpeg command: {' '.join(command)}")
+        
         # Run FFmpeg with output capture
         try:
-            logging.debug(f"Running FFmpeg command: {' '.join(command)}")
             process = subprocess.Popen(
                 command,
                 stdout=subprocess.PIPE,
