@@ -29,10 +29,7 @@ def verify_file_exists(path: str, description: str) -> bool:
     return True
 
 def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700) -> str:
-    """Create FFmpeg drawtext filter commands for each word with outlined text"""
-    # Log the received parameters
-    logging.debug(f"Creating drawtext filter with font_size={font_size}, y_offset={y_offset}")
-    
+    """Create FFmpeg drawtext filter commands for each word with bottom-anchored text"""
     filters = []
     
     for word in word_timings:
@@ -40,19 +37,13 @@ def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 
         end_time = word['end']
         text = word['word'].replace("'", "'\\\\\\''")  # Escape single quotes
         
-        # Create the filter with explicit y position
-        y_position = f"y={y_offset}"  # Ensure y_offset is being used directly
-        
         filter_text = f"drawtext=fontfile={font_path}:text='{text}':fontsize={font_size}:"
         filter_text += f"fontcolor=white:bordercolor=black:borderw=3:"
-        filter_text += f"x=(w-text_w)/2:{y_position}:"  # Explicit y position
+        # Changed positioning to be relative to bottom and set line height
+        filter_text += f"x=(w-text_w)/2:y=h-{y_offset}:line_h={font_size}:"
         filter_text += f"enable='between(t,{start_time},{end_time})'"
         
         filters.append(filter_text)
-        
-        # Log the first filter to verify the y_offset is included correctly
-        if len(filters) == 1:
-            logging.debug(f"Sample filter command: {filter_text}")
     
     return ','.join(filters)
 
