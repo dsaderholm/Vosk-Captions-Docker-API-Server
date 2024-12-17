@@ -28,51 +28,42 @@ def verify_file_exists(path: str, description: str) -> bool:
     logging.debug(f"{description} file verified at {path} with size {os.path.getsize(path)}")
     return True
 
-def create_animated_filter_file(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700, filter_path: str = "filter.txt") -> bool:
-    """Create FFmpeg filter file for animated captions using scale and rotate filters"""
-    try:
-        with open(filter_path, 'w') as f:
-            # Start with base video
-            f.write("[0:v]\n")
-            
-            # Create filter chain for each word
-            for i, word in enumerate(word_timings):
-                start_time = word['start']
-                end_time = word['end']
-                duration = end_time - start_time
-                text = word['word'].replace("'", "'\\\\''")  # Single escape for file
-                
-                # Animation timing
-                bounce_duration = min(0.2, duration/2)
-                t_rel = f"(t-{start_time})"
-                
-                # Scale expression
-                scale_expr = (
-                    f"'if(between({t_rel},0,{bounce_duration}),"
-                    f"0.5+2.5*{t_rel}/{bounce_duration},"
-                    f"1+0.2*sin(2*PI*{t_rel}/{bounce_duration}))"
-                )
-                
-                # Rotation expression
-                rotate_expr = f"'if(between({t_rel},0,{duration}),sin(2*PI*{t_rel})*2,0)'"
-                
-                # Generate text
-                f.write(f"drawtext=fontfile={font_path}:text='{text}':"
-                       f"fontsize={font_size}:fontcolor=white:bordercolor=black:borderw=3:"
-                       f"x=(w-text_w)/2:y=h-{y_offset}-text_h/2:"
-                       f"enable='between(t,{start_time},{end_time})'")
-                
-                # Add comma if not the last word
-                if i < len(word_timings) - 1:
-                    f.write(",\n")
-            
-            # End the filtergraph
-            f.write("\n[v]")
-            
-        return True
-    except Exception as e:
-        logging.error(f"Failed to create filter file: {str(e)}")
-        return False
+def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700) -> str:
+    """Create FFmpeg drawtext filter commands for each word with animation effects"""
+    filters = []
+    
+    for word in word_timings:
+        start_time = word['start']
+        end_time = word['end']
+        duration = end_time - start_time
+        text = word['word'].replace("'", "'\\\\\\''")  # Escape single quotes
+        
+        # Create animation timing variables
+        t_rel = f"(t-{start_time})"  # Time relative to word start
+        bounce_duration = min(0.2, duration/2)  # Duration of bounce effect
+        
+        # Scale animation expression (starts at 0.5, bounces to 1.2, settles at 1.0)
+        scale_expr = (
+            f"if(between({t_rel},0,{bounce_duration}),"
+            f"0.5+2.5*{t_rel}/{bounce_duration},"  # Initial expansion
+            f"1+0.2*sin(2*PI*{t_rel}/{bounce_duration}))"  # Bouncy settling
+        )
+        
+        # Slight rotation wobble
+        rotate_expr = f"sin(2*PI*{t_rel})*2"  # 2 degree maximum rotation
+        
+        filter_text = (
+            f"drawtext=fontfile={font_path}:text='{text}':fontsize={font_size}:"
+            f"fontcolor=white:bordercolor=black:borderw=3:"
+            f"x=(w-text_w)/2:y=h-{y_offset}-text_h/2:"
+            # Apply scale and rotation transforms
+            f"transform=scale={scale_expr}:rotate={rotate_expr}:"
+            f"enable='between(t,{start_time},{end_time})'"
+        )
+        
+        filters.append(filter_text)
+    
+    return ','.join(filters)
 
 def run_ffmpeg_command(command, input_file=None, output_file=None, description="FFmpeg operation"):
     """Run FFmpeg command with detailed logging"""
@@ -201,16 +192,19 @@ def create_subtitle_file(word_timings: list, output_path: str) -> bool:
         logging.error(f"Failed to create subtitle file: {str(e)}")
         return False
 
+
 def process_video(input_path: str, output_path: str, model_path: str, font_path: str, 
                  font_size: int = 200, y_offset: int = 700) -> bool:
-    """Process video with animated subtitles using FFmpeg"""
+    """Process video with subtitles using FFmpeg drawtext"""
     try:
+        # Log received parameters
+        logging.info(f"Processing video with font_size={font_size}, y_offset={y_offset}")
+        
         # Create debug directory
         debug_dir = "/app/debug_files"
         os.makedirs(debug_dir, exist_ok=True)
         
         audio_path = os.path.join(debug_dir, "debug_audio.wav")
-        filter_path = os.path.join(debug_dir, "filter_complex.txt")
         
         logging.info(f"Debug files will be saved to {debug_dir}")
         
@@ -221,27 +215,37 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
         if not word_timings:
             raise Exception("No words were transcribed")
 
-        # Create filter file
-        if not create_animated_filter_file(word_timings, font_path, font_size, y_offset, filter_path):
-            raise Exception("Failed to create filter file")
+        # Create drawtext filter
+        filter_complex = create_drawtext_filter(
+            word_timings, 
+            font_path, 
+            font_size=int(font_size),  # Ensure these are integers
+            y_offset=int(y_offset)
+        )
+        
+        # Save filter command for debugging
+        with open(os.path.join(debug_dir, "filter_command.txt"), 'w') as f:
+            f.write(filter_complex)
+            f.write("\n\nParameters:\n")
+            f.write(f"font_size: {font_size}\n")
+            f.write(f"y_offset: {y_offset}\n")
 
-        # Use filter complex file in FFmpeg command
         command = [
             'ffmpeg',
             '-y',
             '-i', input_path,
-            '-filter_complex_script', filter_path,
-            '-map', '[v]',    # Use the video output from filtergraph
-            '-map', '0:a',    # Copy audio from input
+            '-vf', filter_complex,
             '-c:a', 'copy',
             '-c:v', 'libx264',
             '-preset', 'medium',
             output_path
         ]
         
+        # Log the full command
+        logging.debug(f"FFmpeg command: {' '.join(command)}")
+        
         # Run FFmpeg with output capture
         try:
-            logging.debug(f"Running FFmpeg command: {' '.join(command)}")
             process = subprocess.Popen(
                 command,
                 stdout=subprocess.PIPE,
