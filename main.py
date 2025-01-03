@@ -20,8 +20,12 @@ async def create_caption(
     if not video.filename.endswith(('.mp4', '.avi', '.mov')):
         raise HTTPException(status_code=400, detail="Unsupported file format")
     
+    # Get original filename and extension
+    original_filename = video.filename
+    file_extension = os.path.splitext(original_filename)[1]
+    
     # Create temporary files for processing
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(video.filename)[1]) as temp_input, \
+    with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_input, \
          tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_output:
         
         # Save uploaded video
@@ -58,10 +62,11 @@ async def create_caption(
             except Exception as e:
                 print(f"Cleanup error: {str(e)}")
 
+        # Use the original filename in the response
         response = FileResponse(
             temp_output.name,
             media_type="video/mp4",
-            filename=f"captioned_{video.filename}"
+            filename=original_filename  # Use original filename instead of adding prefix
         )
         
         response.background = cleanup_files
