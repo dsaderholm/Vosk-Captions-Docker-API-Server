@@ -1,8 +1,15 @@
 version: '3.8'
-
 services:
   caption-api:
     build: .
     ports:
       - "8893:8080"
     restart: unless-stopped
+    networks:
+      video_generation:
+        ipv4_address: 172.20.0.10  # You can choose your desired IP address
+
+networks:
+  video_generation:
+    external: true
+    name: "Video Generation"
