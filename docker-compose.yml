@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     networks:
       video_generation:
-        ipv4_address: 172.20.0.10  # You can choose your desired IP address
+        ipv4_address: 10.20.0.10  # You can choose your desired IP address
 
 networks:
   video_generation:
