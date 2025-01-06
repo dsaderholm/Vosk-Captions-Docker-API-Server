@@ -4,6 +4,7 @@ from app.caption import process_video
 import os
 import tempfile
 import asyncio
+from pathlib import Path
 
 app = FastAPI()
 
@@ -62,11 +63,13 @@ async def create_caption(
             except Exception as e:
                 print(f"Cleanup error: {str(e)}")
 
-        # Use the original filename in the response
+        # Sanitize filename and create response
+        filename = Path(original_filename).name
         response = FileResponse(
-            temp_output.name,
+            path=temp_output.name,
             media_type="video/mp4",
-            filename=original_filename  # Use original filename instead of adding prefix
+            filename=filename,
+            content_disposition_type='attachment'
         )
         
         response.background = cleanup_files
