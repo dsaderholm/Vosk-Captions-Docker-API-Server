@@ -64,12 +64,11 @@ async def create_caption(
                 print(f"Cleanup error: {str(e)}")
 
         # Sanitize filename and create response
-        filename = Path(original_filename).name
+        filename = format_filename(original_filename)
         response = FileResponse(
             path=temp_output.name,
             media_type="video/mp4",
-            filename=filename,
-            content_disposition_type='attachment'
+            filename=filename
         )
         
         response.background = cleanup_files
