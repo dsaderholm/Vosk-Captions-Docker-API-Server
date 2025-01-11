@@ -57,7 +57,7 @@ def validate_video_file(file_path: str) -> bool:
 
 # Working Filter Set
 # def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700) -> str:
-    # """Create FFmpeg drawtext filter commands for each word with zoom and fade effects"""
+    # """Create FFmpeg drawtext filter commands for each word with fade effects"""
     # filters = []
     
     # for word in word_timings:
@@ -65,67 +65,75 @@ def validate_video_file(file_path: str) -> bool:
         # end_time = word['end']
         # text = word['word'].replace("'", "'\\\\\\''")  # Escape single quotes
         
+        # Create base text with styling
         # filter_text = f"drawtext=fontfile={font_path}:text='{text}':fontsize={font_size}:"
-        # Enhanced text styling
         # filter_text += f"fontcolor=white@0.95:"
         # filter_text += f"bordercolor=black@0.8:"
         # filter_text += f"borderw=5:"
         # filter_text += f"shadowcolor=black@0.6:"
         # filter_text += f"shadowx=3:shadowy=3:"
         
-        # Calculate center position
-        # filter_text += f"x=(w-text_w)/2:"
-        # filter_text += f"y=h-{y_offset}:"
+        # Position the text
+        # filter_text += f"x='(w-text_w)/2':"
+        # filter_text += f"y='h-{y_offset}':"
         
-        # Add fade timing
+        # Fade effect using alpha
         # fade_time = 0.2
         # filter_text += f"alpha='if(lt(t,{start_time + fade_time}),((t-{start_time})/{fade_time}),if(lt({end_time}-t,{fade_time}),(({end_time}-t)/{fade_time}),1))':"
+        
+        # Enable timing
         # filter_text += f"enable='between(t,{start_time},{end_time})'"
         
         # filters.append(filter_text)
     
     # return ','.join(filters)
-    
+
 # Experimental Filter Set
 def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700) -> str:
-    """Create FFmpeg drawtext filter commands for each word with zoom and fade effects using splitscreen technique"""
+    """Create FFmpeg drawtext filter commands for each word with pseudo-zoom effect"""
     filters = []
-    base_filter = (
-        f"[0:v]split={len(word_timings)}{''.join(f'[base{i}]' for i in range(len(word_timings)))}"
-    )
-    filters.append(base_filter)
+    
+    # First create our base video stream
+    filters.append("[0:v]split=2[base][tmp]")
     
     for i, word in enumerate(word_timings):
         start_time = word['start']
         end_time = word['end']
         text = word['word'].replace("'", "'\\\\\\''")  # Escape single quotes
         
-        # Draw text on its own stream
+        # Create text on transparent background
         filter_text = (
-            f"[base{i}]drawtext=fontfile={font_path}"
-            f":text='{text}':fontsize={font_size}"
+            f"[tmp]drawtext=fontfile={font_path}:text='{text}'"
+            f":fontsize={font_size}"
             f":fontcolor=white@0.95:bordercolor=black@0.8:borderw=5"
             f":shadowcolor=black@0.6:shadowx=3:shadowy=3"
             f":x=(w-text_w)/2:y=h-{y_offset}"
             f":alpha='if(lt(t,{start_time + 0.2}),((t-{start_time})/0.2),"
             f"if(lt({end_time}-t,0.2),(({end_time}-t)/0.2),1))'"
-            f":enable='between(t,{start_time},{end_time})'"
-            f"[txt{i}]"
-        )
-        filters.append(filter_text)
-        
-        # Scale with expression
-        scale_filter = (
-            f"[txt{i}]scale='w=iw*if(lt(t-{start_time},0.15),"
-            f"0.95+(1-0.95)*((t-{start_time})/0.15),1)'"
-            f":force_original_aspect_ratio=decrease"
+            f":enable='between(t,{start_time},{end_time})',format=yuva420p"
         )
         
-        # Add output label if not last filter
+        # Add output label
+        filter_text += f"[text{i}];"
+        
+        # Create zoompan effect
+        filter_text += (
+            f"[text{i}]zoompan=z='if(between(t,{start_time},{start_time + 0.15}),"
+            f"1.1-((t-{start_time})/0.15)*0.1,1)'"
+            f":d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+            f":s='iw*1:ih*1'"
+        )
+        
+        # Add output label for next iteration
         if i < len(word_timings) - 1:
-            scale_filter += f"[out{i}]"
-        
-        filters.append(scale_filter)
+            filter_text += f"[v{i}];"
+        else:
+            filter_text += "[vout]"
+            
+        filters.append(filter_text)
+    
+    # Finally overlay all on base
+    filters.append(f"[base][vout]overlay")
     
     return ';'.join(filters)
 
