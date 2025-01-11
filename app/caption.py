@@ -90,41 +90,43 @@ def validate_video_file(file_path: str) -> bool:
 def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700) -> str:
     """Create FFmpeg drawtext filter commands for each word with zoom and fade effects using splitscreen technique"""
     filters = []
+    base_filter = (
+        f"[0:v]split={len(word_timings)}{''.join(f'[base{i}]' for i in range(len(word_timings)))}"
+    )
+    filters.append(base_filter)
     
-    # We'll need a more complex filter chain for each word
     for i, word in enumerate(word_timings):
         start_time = word['start']
         end_time = word['end']
         text = word['word'].replace("'", "'\\\\\\''")  # Escape single quotes
         
-        # Create a separate overlay for each word
+        # Draw text on its own stream
         filter_text = (
-            f"[0:v]drawtext=fontfile={font_path}:text='{text}':fontsize={font_size}:"
-            f"fontcolor=white@0.95:bordercolor=black@0.8:borderw=5:"
-            f"shadowcolor=black@0.6:shadowx=3:shadowy=3:"
-            f"x=(w-text_w)/2:y=h-{y_offset}:"
-            f"alpha='if(lt(t,{start_time + 0.2}),((t-{start_time})/0.2),"
-            f"if(lt({end_time}-t,0.2),(({end_time}-t)/0.2),1))':"
-            f"enable='between(t,{start_time},{end_time})'[txt{i}];"
-            
-            # Scale the text layer
-            f"[txt{i}]split=2[txt{i}raw][txt{i}scaled];"
-            
-            # Create scaled version
-            f"[txt{i}scaled]scale='iw*if(lt(t-{start_time},0.15),"
-            f"0.95+(1-0.95)*((t-{start_time})/0.15),1)':ih=-1[txt{i}final];"
-            
-            # Overlay the scaled version on the original
-            f"[txt{i}raw][txt{i}final]overlay=shortest=1"
+            f"[base{i}]drawtext=fontfile={font_path}"
+            f":text='{text}':fontsize={font_size}"
+            f":fontcolor=white@0.95:bordercolor=black@0.8:borderw=5"
+            f":shadowcolor=black@0.6:shadowx=3:shadowy=3"
+            f":x=(w-text_w)/2:y=h-{y_offset}"
+            f":alpha='if(lt(t,{start_time + 0.2}),((t-{start_time})/0.2),"
+            f"if(lt({end_time}-t,0.2),(({end_time}-t)/0.2),1))'"
+            f":enable='between(t,{start_time},{end_time})'"
+            f"[txt{i}]"
+        )
+        filters.append(filter_text)
+        
+        # Scale with expression
+        scale_filter = (
+            f"[txt{i}]scale='w=iw*if(lt(t-{start_time},0.15),"
+            f"0.95+(1-0.95)*((t-{start_time})/0.15),1)'"
+            f":force_original_aspect_ratio=decrease"
         )
         
-        # If this isn't the last word, prepare for the next iteration
+        # Add output label if not last filter
         if i < len(word_timings) - 1:
-            filter_text += f"[out{i}];"
+            scale_filter += f"[out{i}]"
         
-        filters.append(filter_text)
+        filters.append(scale_filter)
     
-    # Join all filter chains
     return ';'.join(filters)
 
 def run_ffmpeg_command(command, input_file=None, output_file=None, description="FFmpeg operation"):
