@@ -79,7 +79,7 @@ def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 
         # Add zoom/ease effect
         ease_time = 0.15  # Duration of ease effect in seconds
         scale_start = 0.95  # Start at 95% size
-        filter_text += f"transform=scale='if(lt(t-{start_time},{ease_time}),{scale_start}+(1-{scale_start})*((t-{start_time})/{ease_time}),1)':"
+        filter_text += f"scale='if(lt(t-{start_time},{ease_time}),{scale_start}+(1-{scale_start})*((t-{start_time})/{ease_time}),1)':"
         
         # Fade and timing
         fade_time = 0.2
