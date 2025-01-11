@@ -3,13 +3,13 @@ import wave
 import json
 import logging
 import subprocess
-from vosk import Model, KaldiRecognizer, SetLogLevel
-import tempfile
 import sys
+from datetime import datetime
+from vosk import Model, KaldiRecognizer, SetLogLevel
 
 # Configure logging to show more detail
 logging.basicConfig(
-    level=logging.DEBUG,  # Changed to DEBUG level
+    level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('caption_service.log'),
@@ -28,8 +28,35 @@ def verify_file_exists(path: str, description: str) -> bool:
     logging.debug(f"{description} file verified at {path} with size {os.path.getsize(path)}")
     return True
 
+def validate_video_file(file_path: str) -> bool:
+    """Validate that the file is a proper video file"""
+    try:
+        # Use ffprobe to check file validity
+        command = [
+            'ffprobe',
+            '-v', 'error',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=codec_type',
+            '-of', 'default=noprint_wrappers=1:nokey=1',
+            file_path
+        ]
+        
+        result = subprocess.run(command, 
+                              stdout=subprocess.PIPE, 
+                              stderr=subprocess.PIPE,
+                              text=True)
+        
+        # Check if ffprobe found a video stream
+        is_valid = result.returncode == 0 and 'video' in result.stdout.lower()
+        if not is_valid:
+            logging.error(f"Video validation failed: {result.stderr}")
+        return is_valid
+    except Exception as e:
+        logging.error(f"Video validation failed: {str(e)}")
+        return False
+
 def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700) -> str:
-    """Create FFmpeg drawtext filter commands for each word with bottom-anchored text"""
+    """Create FFmpeg drawtext filter commands for each word with zoom and ease effects"""
     filters = []
     
     for word in word_timings:
@@ -38,9 +65,25 @@ def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 
         text = word['word'].replace("'", "'\\\\\\''")  # Escape single quotes
         
         filter_text = f"drawtext=fontfile={font_path}:text='{text}':fontsize={font_size}:"
-        filter_text += f"fontcolor=white:bordercolor=black:borderw=3:"
-        # Use text_h to calculate bottom alignment
-        filter_text += f"x=(w-text_w)/2:y=h-{y_offset}-text_h/2:"
+        # Enhanced text styling
+        filter_text += f"fontcolor=white@0.95:"
+        filter_text += f"bordercolor=black@0.8:"
+        filter_text += f"borderw=5:"
+        filter_text += f"shadowcolor=black@0.6:"
+        filter_text += f"shadowx=3:shadowy=3:"
+        
+        # Calculate center position for scaling effect
+        filter_text += f"x='(w-text_w)/2':"
+        filter_text += f"y='h-{y_offset}':"
+        
+        # Add zoom/ease effect
+        ease_time = 0.15  # Duration of ease effect in seconds
+        scale_start = 0.95  # Start at 95% size
+        filter_text += f"transform=scale='if(lt(t-{start_time},{ease_time}),{scale_start}+(1-{scale_start})*((t-{start_time})/{ease_time}),1)':"
+        
+        # Fade and timing
+        fade_time = 0.2
+        filter_text += f"alpha='if(lt(t,{start_time + fade_time}),((t-{start_time})/{fade_time}),if(lt({end_time}-t,{fade_time}),(({end_time}-t)/{fade_time}),1))':"
         filter_text += f"enable='between(t,{start_time},{end_time})'"
         
         filters.append(filter_text)
@@ -64,7 +107,7 @@ def run_ffmpeg_command(command, input_file=None, output_file=None, description="
             stdin=subprocess.DEVNULL
         )
         
-        _, stderr = process.communicate()
+        stdout, stderr = process.communicate()
         stderr_str = stderr.decode('utf-8', errors='ignore')
         
         if process.returncode != 0:
@@ -174,7 +217,6 @@ def create_subtitle_file(word_timings: list, output_path: str) -> bool:
         logging.error(f"Failed to create subtitle file: {str(e)}")
         return False
 
-
 def process_video(input_path: str, output_path: str, model_path: str, font_path: str, 
                  font_size: int = 200, y_offset: int = 700) -> bool:
     """Process video with subtitles using FFmpeg drawtext"""
@@ -186,6 +228,10 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
         debug_dir = "/app/debug_files"
         os.makedirs(debug_dir, exist_ok=True)
         
+        # Validate video file first
+        if not validate_video_file(input_path):
+            raise Exception("Invalid or corrupted video file")
+            
         audio_path = os.path.join(debug_dir, "debug_audio.wav")
         
         logging.info(f"Debug files will be saved to {debug_dir}")
@@ -201,7 +247,7 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
         filter_complex = create_drawtext_filter(
             word_timings, 
             font_path, 
-            font_size=int(font_size),  # Ensure these are integers
+            font_size=int(font_size),
             y_offset=int(y_offset)
         )
         
@@ -263,7 +309,6 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
         logging.error(f"Error processing video: {str(e)}")
         return False
 
-# Helper function to escape paths for FFmpeg
 def escape_path(path):
     """Escape path for FFmpeg"""
     return path.replace(":", "\\:").replace("'", "'\\''")
