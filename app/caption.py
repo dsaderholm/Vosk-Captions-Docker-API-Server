@@ -88,8 +88,10 @@ def validate_video_file(file_path: str) -> bool:
     
 # Experimental Filter Set
 def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700) -> str:
-    """Create FFmpeg drawtext filter commands for each word with zoom and fade effects using splitscreen technique"""
+    """Create FFmpeg drawtext filter commands for each word with fade effects"""
     filters = []
+    
+    # Create initial split for the base video stream
     base_filter = (
         f"[0:v]split={len(word_timings)}{''.join(f'[base{i}]' for i in range(len(word_timings)))}"
     )
@@ -100,7 +102,7 @@ def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 
         end_time = word['end']
         text = word['word'].replace("'", "'\\\\\\''")  # Escape single quotes
         
-        # Draw text on its own stream
+        # Draw text
         filter_text = (
             f"[base{i}]drawtext=fontfile={font_path}"
             f":text='{text}':fontsize={font_size}"
@@ -110,22 +112,13 @@ def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 
             f":alpha='if(lt(t,{start_time + 0.2}),((t-{start_time})/0.2),"
             f"if(lt({end_time}-t,0.2),(({end_time}-t)/0.2),1))'"
             f":enable='between(t,{start_time},{end_time})'"
-            f"[txt{i}]"
-        )
-        filters.append(filter_text)
-        
-        # Scale with expression
-        scale_filter = (
-            f"[txt{i}]scale='w=iw*if(lt(t-{start_time},0.15),"
-            f"0.95+(1-0.95)*((t-{start_time})/0.15),1)'"
-            f":force_original_aspect_ratio=decrease"
         )
         
         # Add output label if not last filter
         if i < len(word_timings) - 1:
-            scale_filter += f"[out{i}]"
+            filter_text += f"[out{i}]"
         
-        filters.append(scale_filter)
+        filters.append(filter_text)
     
     return ';'.join(filters)
 
