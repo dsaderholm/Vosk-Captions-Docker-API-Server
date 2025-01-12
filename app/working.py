@@ -57,7 +57,7 @@ def validate_video_file(file_path: str) -> bool:
 
 # Working Filter Set
 def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700) -> str:
-    """Create FFmpeg drawtext filter commands for each word"""
+    """Create FFmpeg drawtext filter commands for each word with fade effects"""
     filters = []
     
     for word in word_timings:
@@ -66,21 +66,23 @@ def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 
         text = word['word'].replace("'", "'\\\\\\''")  # Escape single quotes
         
         # Create base text with styling
-        filter_text = (
-            f"drawtext=fontfile={font_path}"
-            f":text='{text}'"
-            f":fontsize={font_size}"
-            f":fontcolor=white@0.95"
-            f":bordercolor=black@0.8"
-            f":borderw=5"
-            f":shadowcolor=black@0.6"
-            f":shadowx=3"
-            f":shadowy=3"
-            f":x=(w-text_w)/2"
-            f":y=h-{y_offset}"
-            f":alpha='if(lt(t,{start_time + 0.2}),((t-{start_time})/0.2),if(lt({end_time}-t,0.2),(({end_time}-t)/0.2),1))'"
-            f":enable='between(t,{start_time},{end_time})'"
-        )
+        filter_text = f"drawtext=fontfile={font_path}:text='{text}':fontsize={font_size}:"
+        filter_text += f"fontcolor=white@0.95:"
+        filter_text += f"bordercolor=black@0.8:"
+        filter_text += f"borderw=5:"
+        filter_text += f"shadowcolor=black@0.6:"
+        filter_text += f"shadowx=3:shadowy=3:"
+        
+        # Position the text
+        filter_text += f"x='(w-text_w)/2':"
+        filter_text += f"y='h-{y_offset}':"
+        
+        # Fade effect using alpha
+        fade_time = 0.2
+        filter_text += f"alpha='if(lt(t,{start_time + fade_time}),((t-{start_time})/{fade_time}),if(lt({end_time}-t,{fade_time}),(({end_time}-t)/{fade_time}),1))':"
+        
+        # Enable timing
+        filter_text += f"enable='between(t,{start_time},{end_time})'"
         
         filters.append(filter_text)
     
