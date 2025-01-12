@@ -57,25 +57,27 @@ def validate_video_file(file_path: str) -> bool:
 
 # Working Filter Set
 def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700) -> str:
-    """Create FFmpeg drawtext filter commands for each word with quick fade"""
+    """Create FFmpeg drawtext filter commands for each word with enhanced styling"""
     filters = []
     
     for word in word_timings:
         start_time = word['start']
         end_time = word['end']
-        # Convert text to uppercase before escaping quotes
         text = word['word'].upper().replace("'", "'\\\\\\''")
         
         filter_text = (
             f"drawtext=fontfile={font_path}"
             f":text='{text}'"
             f":fontsize={font_size}"
-            f":fontcolor=white@0.95"
-            f":bordercolor=black@0.8"
-            f":borderw=5"
-            f":shadowcolor=black@0.6"
-            f":shadowx=3"
-            f":shadowy=3"
+            # Bright white text with full opacity
+            f":fontcolor=white@1"
+            # Thicker black border
+            f":bordercolor=black@1"
+            f":borderw=8"
+            # Deeper shadow
+            f":shadowcolor=black@0.8"
+            f":shadowx=5"
+            f":shadowy=5"
             f":x=(w-text_w)/2"
             f":y=h-{y_offset}"
             # Quick fade in/out
