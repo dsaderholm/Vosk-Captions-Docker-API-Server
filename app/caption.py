@@ -57,15 +57,15 @@ def validate_video_file(file_path: str) -> bool:
 
 # Working Filter Set
 def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700) -> str:
-    """Create FFmpeg drawtext filter commands for each word with enhanced pop effect"""
+    """Create FFmpeg drawtext filter commands for each word with quick fade"""
     filters = []
     
     for word in word_timings:
         start_time = word['start']
         end_time = word['end']
-        text = word['word'].replace("'", "'\\\\\\''")  # Escape single quotes
+        # Convert text to uppercase before escaping quotes
+        text = word['word'].upper().replace("'", "'\\\\\\''")
         
-        # Create base text with styling and enhanced fade
         filter_text = (
             f"drawtext=fontfile={font_path}"
             f":text='{text}'"
@@ -78,7 +78,8 @@ def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 
             f":shadowy=3"
             f":x=(w-text_w)/2"
             f":y=h-{y_offset}"
-            f":alpha='if(lt(t,{start_time + 0.05}),((t-{start_time})/0.05)*1.2,if(lt(t,{start_time + 0.1}),1.2-((t-{start_time}-0.05)/0.05)*0.2,if(lt({end_time}-t,0.1),(({end_time}-t)/0.1),1)))'"
+            # Quick fade in/out
+            f":alpha='if(lt(t,{start_time + 0.05}),((t-{start_time})/0.05),if(lt({end_time}-t,0.05),(({end_time}-t)/0.05),1))'"
             f":enable='between(t,{start_time},{end_time})'"
         )
         
