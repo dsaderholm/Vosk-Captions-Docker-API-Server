@@ -90,50 +90,39 @@ def validate_video_file(file_path: str) -> bool:
 
 # Experimental Filter Set
 def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700) -> str:
-    """Create FFmpeg drawtext filter commands for each word with pseudo-zoom effect"""
+    """Create FFmpeg drawtext filter commands with a pop effect using crop"""
     filters = []
     
-    # First create our base video stream
-    filters.append("[0:v]split=2[base][tmp]")
+    # Create our base video stream
+    filters.append("[0:v]split=2[base][text]")
     
     for i, word in enumerate(word_timings):
         start_time = word['start']
         end_time = word['end']
         text = word['word'].replace("'", "'\\\\\\''")  # Escape single quotes
         
-        # Create text on transparent background
+        # Create text
         filter_text = (
-            f"[tmp]drawtext=fontfile={font_path}:text='{text}'"
+            f"[text]drawtext=fontfile={font_path}:text='{text}'"
             f":fontsize={font_size}"
             f":fontcolor=white@0.95:bordercolor=black@0.8:borderw=5"
             f":shadowcolor=black@0.6:shadowx=3:shadowy=3"
             f":x=(w-text_w)/2:y=h-{y_offset}"
             f":alpha='if(lt(t,{start_time + 0.2}),((t-{start_time})/0.2),"
             f"if(lt({end_time}-t,0.2),(({end_time}-t)/0.2),1))'"
-            f":enable='between(t,{start_time},{end_time})',format=yuva420p"
+            f":enable='between(t,{start_time},{end_time})'"
         )
         
         # Add output label
-        filter_text += f"[text{i}];"
-        
-        # Create zoompan effect
-        filter_text += (
-            f"[text{i}]zoompan=z='if(between(t,{start_time},{start_time + 0.15}),"
-            f"1.1-((t-{start_time})/0.15)*0.1,1)'"
-            f":d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-            f":s='iw*1:ih*1'"
-        )
-        
-        # Add output label for next iteration
         if i < len(word_timings) - 1:
-            filter_text += f"[v{i}];"
+            filter_text += f"[v{i}]"
         else:
             filter_text += "[vout]"
             
         filters.append(filter_text)
     
-    # Finally overlay all on base
-    filters.append(f"[base][vout]overlay")
+    # Overlay the text stream onto base
+    filters.append("[base][vout]overlay=format=yuv420")
     
     return ';'.join(filters)
 
