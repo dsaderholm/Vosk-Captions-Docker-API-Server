@@ -4,6 +4,7 @@ import json
 import logging
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from vosk import Model, KaldiRecognizer, SetLogLevel
 
@@ -55,7 +56,6 @@ def validate_video_file(file_path: str) -> bool:
         logging.error(f"Video validation failed: {str(e)}")
         return False
 
-# Working Filter Set
 def create_drawtext_filter(word_timings: list, font_path: str, font_size: int = 200, y_offset: int = 700) -> str:
     """Create FFmpeg drawtext filter commands for each word with enhanced styling"""
     filters = []
@@ -249,30 +249,25 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
             font_size=int(font_size),
             y_offset=int(y_offset)
         )
-        
-        # Save filter command for debugging
-        with open(os.path.join(debug_dir, "filter_command.txt"), 'w') as f:
-            f.write(filter_complex)
-            f.write("\n\nParameters:\n")
-            f.write(f"font_size: {font_size}\n")
-            f.write(f"y_offset: {y_offset}\n")
 
-        command = [
-            'ffmpeg',
-            '-y',
-            '-i', input_path,
-            '-vf', filter_complex,
-            '-c:a', 'copy',
-            '-c:v', 'libx264',
-            '-preset', 'medium',
-            output_path
-        ]
-        
-        # Log the full command
-        logging.debug(f"FFmpeg command: {' '.join(command)}")
-        
-        # Run FFmpeg with output capture
+        # Create temporary file for filter complex
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as filter_file:
+            filter_file.write(filter_complex)
+            filter_path = filter_file.name
+
         try:
+            command = [
+                'ffmpeg',
+                '-y',
+                '-i', input_path,
+                '-filter_complex_script', filter_path,
+                '-c:a', 'copy',
+                '-c:v', 'libx264',
+                '-preset', 'medium',
+                output_path
+            ]
+            
+            # Run FFmpeg with output capture
             process = subprocess.Popen(
                 command,
                 stdout=subprocess.PIPE,
@@ -303,6 +298,12 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
         except Exception as e:
             logging.error(f"FFmpeg execution failed: {str(e)}")
             return False
+        finally:
+            # Clean up the temporary filter file
+            try:
+                os.unlink(filter_path)
+            except Exception as e:
+                logging.warning(f"Failed to clean up filter file: {str(e)}")
 
     except Exception as e:
         logging.error(f"Error processing video: {str(e)}")
