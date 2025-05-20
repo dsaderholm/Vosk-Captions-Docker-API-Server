@@ -5,9 +5,6 @@ services:
     ports:
       - "8893:8080"
     restart: unless-stopped
-    environment:
-      - LIBVA_DRIVER_NAME=iHD
-      - INTEL_OPENCL_DEVICE=0
     volumes:
       - /dev/dri:/dev/dri
     devices:
