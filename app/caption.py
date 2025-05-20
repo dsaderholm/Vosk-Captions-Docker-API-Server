@@ -216,6 +216,28 @@ def create_subtitle_file(word_timings: list, output_path: str) -> bool:
         logging.error(f"Failed to create subtitle file: {str(e)}")
         return False
 
+def check_gpu_availability():
+    """Check if Intel GPU acceleration is available"""
+    try:
+        # Run vainfo to check GPU hardware acceleration availability
+        process = subprocess.run(['vainfo'], 
+                               stdout=subprocess.PIPE, 
+                               stderr=subprocess.PIPE, 
+                               text=True)
+        
+        if process.returncode == 0 and 'Intel' in process.stdout:
+            logging.info("Intel GPU hardware acceleration is available")
+            logging.debug(f"GPU info: {process.stdout.strip()}")
+            return True
+        else:
+            logging.warning("Intel GPU hardware acceleration is not available")
+            logging.debug(f"vainfo output: {process.stdout.strip()}")
+            logging.debug(f"vainfo error: {process.stderr.strip()}")
+            return False
+    except Exception as e:
+        logging.error(f"Error checking GPU availability: {str(e)}")
+        return False
+
 def process_video(input_path: str, output_path: str, model_path: str, font_path: str, 
                  font_size: int = 200, y_offset: int = 700) -> bool:
     """Process video with subtitles using FFmpeg drawtext"""
@@ -226,6 +248,13 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
         # Create debug directory
         debug_dir = "/app/debug_files"
         os.makedirs(debug_dir, exist_ok=True)
+        
+        # Check GPU availability
+        use_gpu = check_gpu_availability()
+        if use_gpu:
+            logging.info("Using Intel GPU acceleration for video processing")
+        else:
+            logging.info("Using CPU for video processing")
         
         # Validate video file first
         if not validate_video_file(input_path):
@@ -256,16 +285,33 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
             filter_path = filter_file.name
 
         try:
-            command = [
-                'ffmpeg',
-                '-y',
-                '-i', input_path,
-                '-filter_complex_script', filter_path,
-                '-c:a', 'copy',
-                '-c:v', 'libx264',
-                '-preset', 'medium',
-                output_path
-            ]
+            if use_gpu:
+                # Use hardware acceleration with Intel GPU
+                command = [
+                    'ffmpeg',
+                    '-y',
+                    '-hwaccel', 'vaapi',
+                    '-hwaccel_device', '/dev/dri/renderD128',
+                    '-hwaccel_output_format', 'vaapi',
+                    '-i', input_path,
+                    '-filter_complex_script', filter_path,
+                    '-c:a', 'copy',
+                    '-c:v', 'h264_vaapi',
+                    '-qp', '23',
+                    output_path
+                ]
+            else:
+                # Fallback to CPU processing
+                command = [
+                    'ffmpeg',
+                    '-y',
+                    '-i', input_path,
+                    '-filter_complex_script', filter_path,
+                    '-c:a', 'copy',
+                    '-c:v', 'libx264',
+                    '-preset', 'medium',
+                    output_path
+                ]
             
             # Run FFmpeg with output capture
             process = subprocess.Popen(
