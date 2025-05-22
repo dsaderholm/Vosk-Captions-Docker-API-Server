@@ -5,13 +5,33 @@ services:
     ports:
       - "8893:8080"
     restart: unless-stopped
-    volumes:
-      - /dev/dri:/dev/dri
+    environment:
+      # Intel Arc GPU optimization environment variables
+      - LIBVA_DRIVER_NAME=iHD
+      - LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri
+      - INTEL_MEDIA_RUNTIME=/usr/lib/x86_64-linux-gnu/dri
+      # Intel GPU frequency and performance optimization
+      - INTEL_GPU_MIN_FREQ=0
+      - INTEL_GPU_MAX_FREQ=2100
+      # FFmpeg Intel Arc optimizations
+      - FFMPEG_QSV_RUNTIME=1
+      - INTEL_MEDIA_DRIVER_IOCTLS=1
+    # Intel Arc GPU device passthrough
     devices:
-      - /dev/dri
+      - /dev/dri:/dev/dri
+    # Required groups for Intel Arc GPU access
+    group_add:
+      - video
+      - render
+    # Enhanced capabilities for optimal Intel Arc performance
+    cap_add:
+      - CAP_PERFMON
+    # Intel Arc specific device configuration
+    device_cgroup_rules:
+      - 'c 226:* rmw'  # DRI devices
     networks:
       video_generation:
-        ipv4_address: 10.20.0.10  # You can choose your desired IP address
+        ipv4_address: 10.20.0.10
 
 networks:
   video_generation:

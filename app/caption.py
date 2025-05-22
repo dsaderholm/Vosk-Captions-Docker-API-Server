@@ -220,22 +220,35 @@ def check_gpu_availability():
     """Check if Intel GPU acceleration is available"""
     try:
         # Run vainfo to check GPU hardware acceleration availability
-        process = subprocess.run(['vainfo'], 
+        process = subprocess.run(['vainfo', '--display', 'drm', '--device', '/dev/dri/renderD128'], 
                                stdout=subprocess.PIPE, 
                                stderr=subprocess.PIPE, 
-                               text=True)
+                               text=True,
+                               timeout=10)
         
-        if process.returncode == 0 and 'Intel' in process.stdout:
-            logging.info("Intel GPU hardware acceleration is available")
-            logging.debug(f"GPU info: {process.stdout.strip()}")
-            return True
+        if process.returncode == 0:
+            gpu_info = process.stdout
+            if 'Intel' in gpu_info and 'H264' in gpu_info:
+                logging.info("✅ Intel Arc GPU hardware acceleration is available")
+                if 'iHD driver' in gpu_info:
+                    logging.info("✅ Using Intel iHD driver for optimal Arc performance")
+                logging.debug(f"GPU capabilities: {gpu_info.strip()}")
+                return True
+            else:
+                logging.warning("⚠️ Intel GPU found but limited codec support")
+                return False
         else:
-            logging.warning("Intel GPU hardware acceleration is not available")
-            logging.debug(f"vainfo output: {process.stdout.strip()}")
+            logging.warning("⚠️ Intel GPU hardware acceleration is not available")
             logging.debug(f"vainfo error: {process.stderr.strip()}")
             return False
+    except subprocess.TimeoutExpired:
+        logging.warning("⚠️ GPU check timed out")
+        return False
+    except FileNotFoundError:
+        logging.warning("⚠️ vainfo not found, install intel-gpu-tools")
+        return False
     except Exception as e:
-        logging.error(f"Error checking GPU availability: {str(e)}")
+        logging.error(f"❌ Error checking GPU availability: {str(e)}")
         return False
 
 def process_video(input_path: str, output_path: str, model_path: str, font_path: str, 
@@ -286,22 +299,31 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
 
         try:
             if use_gpu:
-                # Use hardware acceleration with Intel GPU
+                # Enhanced Intel Arc GPU acceleration
+                logging.info("🚀 Using Intel Arc GPU acceleration for optimal performance")
                 command = [
                     'ffmpeg',
                     '-y',
+                    # Intel Arc hardware decoding
                     '-hwaccel', 'vaapi',
                     '-hwaccel_device', '/dev/dri/renderD128',
                     '-hwaccel_output_format', 'vaapi',
                     '-i', input_path,
-                    '-filter_complex_script', filter_path,
+                    # Use hardware-accelerated video filters where possible
+                    '-vf', f'format=nv12,hwupload,{filter_complex.replace(",", ":")},hwdownload,format=nv12',
                     '-c:a', 'copy',
+                    # Intel Arc hardware encoding with optimizations
                     '-c:v', 'h264_vaapi',
+                    '-profile:v', 'high',
+                    '-level', '4.0',
                     '-qp', '23',
+                    '-bf', '3',
+                    '-rc_mode', 'CQP',
                     output_path
                 ]
             else:
-                # Fallback to CPU processing
+                # CPU fallback with software encoding
+                logging.info("💻 Using CPU processing (software encoding)")
                 command = [
                     'ffmpeg',
                     '-y',
@@ -310,6 +332,7 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
                     '-c:a', 'copy',
                     '-c:v', 'libx264',
                     '-preset', 'medium',
+                    '-crf', '23',
                     output_path
                 ]
             
