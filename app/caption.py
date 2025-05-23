@@ -299,26 +299,21 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
 
         try:
             if use_gpu:
-                # Enhanced Intel Arc GPU acceleration
-                logging.info("🚀 Using Intel Arc GPU acceleration for optimal performance")
+                # Enhanced Intel Arc GPU acceleration with QuickSync
+                logging.info("🚀 Using Intel Arc QuickSync (QSV) for optimal performance")
                 command = [
                     'ffmpeg',
                     '-y',
-                    # Intel Arc hardware decoding
-                    '-hwaccel', 'vaapi',
-                    '-hwaccel_device', '/dev/dri/renderD128',
-                    '-hwaccel_output_format', 'vaapi',
                     '-i', input_path,
-                    # Use hardware-accelerated video filters where possible
-                    '-vf', f'format=nv12,hwupload,{filter_complex.replace(",", ":")},hwdownload,format=nv12',
+                    '-filter_complex', filter_complex,
                     '-c:a', 'copy',
-                    # Intel Arc hardware encoding with optimizations
-                    '-c:v', 'h264_vaapi',
-                    '-profile:v', 'high',
-                    '-level', '4.0',
-                    '-qp', '23',
-                    '-bf', '3',
-                    '-rc_mode', 'CQP',
+                    # Try QuickSync first, then fallback to VA-API
+                    '-c:v', 'h264_qsv',
+                    '-preset', 'medium',
+                    '-global_quality', '23',
+                    '-look_ahead', '1',
+                    '-maxrate', '25M',
+                    '-low_power', '0',
                     output_path
                 ]
             else:

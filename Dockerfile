@@ -1,27 +1,13 @@
 FROM python:3.10.11
 
-# Install system dependencies including Intel Arc GPU support
-RUN apt-get update && apt-get install -y \
-    # Essential tools
-    wget \
-    curl \
-    gnupg \
-    # Intel GPU and media packages for hardware acceleration\n    intel-media-va-driver-non-free \
-    intel-gpu-tools \
-    libva-utils \
-    vainfo \
-    # FFmpeg and media libraries\n    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+# Fix Debian 12 (Bookworm) to include non-free repositories
+RUN sed -i 's/Components: main/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources
 
-# Add Intel APT repository for OneAPI runtime
-RUN wget -qO - https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | apt-key add - && \
-    echo "deb https://apt.repos.intel.com/oneapi all main" | tee /etc/apt/sources.list.d/oneAPI.list
-
-# Install Intel OneAPI components for optimal Arc support
+# Install system dependencies and Intel Arc drivers
 RUN apt-get update && apt-get install -y \
-    intel-oneapi-runtime-libs \
-    intel-level-zero-gpu \
-    level-zero \
+    wget curl gnupg \
+    intel-media-va-driver-non-free \
+    vainfo intel-gpu-tools ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -40,12 +26,10 @@ COPY app/ ./app/
 COPY fonts/ ./fonts/
 COPY main.py .
 
-# Set Intel Arc optimization environment variables
+# Set Intel Arc environment variables
 ENV LIBVA_DRIVER_NAME=iHD \
     LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri \
-    INTEL_MEDIA_RUNTIME=/usr/lib/x86_64-linux-gnu/dri \
-    INTEL_GPU_MIN_FREQ=0 \
-    INTEL_GPU_MAX_FREQ=2100
+    INTEL_MEDIA_RUNTIME=/usr/lib/x86_64-linux-gnu/dri
 
 EXPOSE 8080
 
