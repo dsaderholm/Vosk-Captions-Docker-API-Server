@@ -15,9 +15,13 @@ RUN apt-get update && apt-get install -y \
     # Intel Arc GPU support
     vainfo intel-gpu-tools \
     intel-media-va-driver-non-free \
+    i965-va-driver \
+    mesa-va-drivers \
     onevpl-tools libvpl2 libvpl-dev \
     # FFmpeg with proper Intel support
     ffmpeg \
+    # Additional debugging tools
+    libdrm2 libdrm-intel1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

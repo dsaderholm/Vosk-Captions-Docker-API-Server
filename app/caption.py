@@ -228,30 +228,38 @@ def create_subtitle_file(word_timings: list, output_path: str) -> bool:
         return False
 
 def try_intel_arc_encoding(input_path: str, output_path: str, filter_complex: str, max_retries: int = 3) -> bool:
-    """Try Intel Arc hardware encoding with multiple fallback methods."""
+    """Try Intel Arc hardware encoding with multiple fallback methods using filter files."""
+    
+    # Create temporary filter file to avoid "Argument list too long" error
+    debug_dir = "/app/debug_files"
+    filter_file_path = os.path.join(debug_dir, "hardware_filter.txt")
+    
+    try:
+        with open(filter_file_path, 'w') as f:
+            f.write(filter_complex)
+        logging.debug(f"Created filter file at {filter_file_path}")
+    except Exception as e:
+        logging.error(f"Failed to create filter file: {str(e)}")
+        return False
+    
     for attempt in range(max_retries):
         try:
             logging.info(f"🚀 Attempting Intel Arc hardware encoding (attempt {attempt + 1})...")
             
-            # Method 1: Intel Arc-specific QSV (requires proper drivers)
+            # Method 1: VA-API with filter file (most compatible for Intel Arc)
             try:
-                logging.info("🎯 Using Intel Arc QSV (requires updated drivers)...")
+                logging.info("🎯 Using VA-API with filter file (most compatible)...")
                 
                 cmd = [
                     'ffmpeg',
                     '-y',
                     '-threads', '16',
-                    # QSV-specific initialization
-                    '-init_hw_device', 'qsv=hw',
-                    '-filter_hw_device', 'hw',
+                    '-hwaccel', 'vaapi',
+                    '-hwaccel_device', '/dev/dri/renderD128',
                     '-i', input_path,
-                    '-filter_complex', filter_complex + ',format=qsv,hwupload=extra_hw_frames=64[v]',
-                    '-map', '[v]',
-                    '-map', '0:a',
-                    '-c:v', 'h264_qsv',
-                    '-preset', 'medium',
-                    '-global_quality', '23',
-                    '-look_ahead', '1',
+                    '-filter_complex_script', filter_file_path,
+                    '-c:v', 'h264_vaapi',
+                    '-qp', '23',
                     '-c:a', 'copy',
                     '-movflags', '+faststart',
                     output_path
@@ -260,30 +268,29 @@ def try_intel_arc_encoding(input_path: str, output_path: str, filter_complex: st
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
                 
                 if result.returncode == 0:
-                    logging.info("✅ Intel Arc QSV encoding successful!")
+                    logging.info("✅ Intel Arc VA-API encoding successful!")
                     return True
                 else:
-                    logging.warning(f"⚠️ QSV failed - likely driver issue (need intel-media-driver 22.5.2+)")
+                    logging.warning(f"⚠️ VA-API failed: {result.stderr[-200:] if result.stderr else 'Unknown error'}")
                     raise subprocess.CalledProcessError(result.returncode, cmd, result.stderr)
                     
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                logging.info(f"⚠️ QSV failed, trying VA-API with software overlay...")
+                logging.info(f"⚠️ VA-API failed, trying QSV with filter file...")
                 
-                # Method 2: VA-API with software overlay (more compatible)
+                # Method 2: QSV with filter file (requires proper drivers)
                 try:
-                    logging.info("🔄 Using VA-API with software preprocessing...")
+                    logging.info("🔄 Using Intel Arc QSV with filter file...")
                     
                     cmd = [
                         'ffmpeg',
                         '-y',
                         '-threads', '16',
+                        '-init_hw_device', 'qsv=hw',
                         '-i', input_path,
-                        '-filter_complex', filter_complex + ',format=nv12,hwupload[v]',
-                        '-map', '[v]',
-                        '-map', '0:a',
-                        '-c:v', 'h264_vaapi',
-                        '-vaapi_device', '/dev/dri/renderD128',
-                        '-qp', '23',
+                        '-filter_complex_script', filter_file_path,
+                        '-c:v', 'h264_qsv',
+                        '-preset', 'medium',
+                        '-global_quality', '23',
                         '-c:a', 'copy',
                         '-movflags', '+faststart',
                         output_path
@@ -292,16 +299,16 @@ def try_intel_arc_encoding(input_path: str, output_path: str, filter_complex: st
                     result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
                     
                     if result.returncode == 0:
-                        logging.info("✅ Intel Arc VA-API encoding successful!")
+                        logging.info("✅ Intel Arc QSV encoding successful!")
                         return True
                     else:
-                        logging.warning(f"⚠️ VA-API failed: {result.stderr[-200:] if result.stderr else 'Unknown error'}")
+                        logging.warning(f"⚠️ QSV failed - likely driver issue")
                         raise subprocess.CalledProcessError(result.returncode, cmd, result.stderr)
                         
                 except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                    logging.info(f"⚠️ VA-API also failed, trying basic VA-API...")
+                    logging.info(f"⚠️ QSV also failed, trying basic VA-API...")
                     
-                    # Method 3: Basic VA-API without hardware upload in filter
+                    # Method 3: Basic VA-API without hardware acceleration input
                     try:
                         logging.info("🔄 Trying basic VA-API encoding...")
                         
@@ -309,14 +316,10 @@ def try_intel_arc_encoding(input_path: str, output_path: str, filter_complex: st
                             'ffmpeg',
                             '-y',
                             '-threads', '16',
-                            '-hwaccel', 'vaapi',
-                            '-hwaccel_device', '/dev/dri/renderD128',
-                            '-hwaccel_output_format', 'vaapi',
                             '-i', input_path,
-                            '-filter_complex', filter_complex + '[v]',
-                            '-map', '[v]',
-                            '-map', '0:a',
+                            '-filter_complex_script', filter_file_path,
                             '-c:v', 'h264_vaapi',
+                            '-vaapi_device', '/dev/dri/renderD128',
                             '-qp', '23',
                             '-c:a', 'copy',
                             output_path
@@ -339,11 +342,21 @@ def try_intel_arc_encoding(input_path: str, output_path: str, filter_complex: st
             logging.warning(f"❌ Intel Arc encoding attempt {attempt + 1} failed:")
             if hasattr(e, 'stderr') and e.stderr:
                 error_msg = e.stderr if isinstance(e.stderr, str) else e.stderr.decode("utf8")
-                logging.warning("Error:", error_msg)
+                logging.warning(f"Error: {error_msg}")
+                
+                # Save error details for debugging
+                error_file = os.path.join(debug_dir, f"hardware_error_attempt_{attempt + 1}.log")
+                try:
+                    with open(error_file, 'w') as f:
+                        f.write(f"Attempt {attempt + 1} Error:\n{error_msg}")
+                except:
+                    pass
                 
                 # Specific Intel Arc troubleshooting
-                if "filter" in error_msg.lower() and "complex" in error_msg.lower():
-                    logging.info("💡 Filter conflict detected - this is why we're using raw commands")
+                if "argument list too long" in error_msg.lower():
+                    logging.info("💡 Using filter file should fix this - check filter file creation")
+                elif "filter" in error_msg.lower() and "complex" in error_msg.lower():
+                    logging.info("💡 Filter parsing issue - check filter syntax")
                 elif "qsv" in error_msg.lower() or "mfx" in error_msg.lower():
                     logging.info("💡 QSV failed - Intel drivers may need updating")
                 elif "vaapi" in error_msg.lower():
@@ -361,7 +374,59 @@ def try_intel_arc_encoding(input_path: str, output_path: str, filter_complex: st
             logging.info(f"🔄 Retrying... ({attempt + 1}/{max_retries})")
             time.sleep(2)
     
+    # Clean up filter file
+    try:
+        os.unlink(filter_file_path)
+    except:
+        pass
+    
     return False
+
+def debug_gpu_status():
+    """Debug GPU status and save detailed information"""
+    debug_dir = "/app/debug_files"
+    debug_file = os.path.join(debug_dir, "gpu_debug.log")
+    
+    try:
+        with open(debug_file, 'w') as f:
+            f.write("=== GPU Debug Information ===\n\n")
+            
+            # Check if GPU device exists
+            try:
+                result = subprocess.run(['ls', '-la', '/dev/dri/'], capture_output=True, text=True)
+                f.write("GPU Devices:\n")
+                f.write(result.stdout)
+                f.write("\n")
+            except Exception as e:
+                f.write(f"Failed to list GPU devices: {str(e)}\n")
+            
+            # Check VA-API status
+            try:
+                result = subprocess.run(['vainfo', '--display', 'drm', '--device', '/dev/dri/renderD128'], 
+                                      capture_output=True, text=True, timeout=10)
+                f.write("VA-API Information:\n")
+                f.write(f"Return code: {result.returncode}\n")
+                f.write("STDOUT:\n")
+                f.write(result.stdout)
+                f.write("\nSTDERR:\n")
+                f.write(result.stderr)
+                f.write("\n")
+            except Exception as e:
+                f.write(f"Failed to get VA-API info: {str(e)}\n")
+            
+            # Check FFmpeg encoders
+            try:
+                result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=10)
+                f.write("FFmpeg Hardware Encoders:\n")
+                for line in result.stdout.split('\n'):
+                    if any(codec in line.lower() for codec in ['vaapi', 'qsv', 'intel']):
+                        f.write(f"  {line}\n")
+                f.write("\n")
+            except Exception as e:
+                f.write(f"Failed to get FFmpeg encoder info: {str(e)}\n")
+                
+    except Exception as e:
+        logging.error(f"Failed to create GPU debug file: {str(e)}")
 
 def check_gpu_availability():
     """Enhanced Intel Arc GPU availability check with multiple fallback methods"""
@@ -413,6 +478,9 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
         debug_dir = "/app/debug_files"
         os.makedirs(debug_dir, exist_ok=True)
         
+        # Debug GPU status
+        debug_gpu_status()
+        
         # Check GPU availability
         use_gpu = check_gpu_availability()
         if use_gpu:
@@ -443,10 +511,7 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
             y_offset=int(y_offset)
         )
 
-        # Create temporary file for filter complex
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as filter_file:
-            filter_file.write(filter_complex)
-            filter_path = filter_file.name
+        # This section is already handled by the software fallback above
 
         try:
             if use_gpu:
@@ -461,17 +526,19 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
             # Software fallback: Guaranteed to work
             logging.info("🎯 Using guaranteed software encoding...")
             
-            # Create temporary file for filter complex
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as filter_file:
-                filter_file.write(filter_complex)
-                filter_path = filter_file.name
-
+            # Create software filter file path
+            software_filter_path = os.path.join(debug_dir, "software_filter.txt")
+            
             try:
+                # Write filter to file to avoid argument length issues
+                with open(software_filter_path, 'w') as f:
+                    f.write(filter_complex)
+                
                 command = [
                     'ffmpeg',
                     '-y',
                     '-i', input_path,
-                    '-filter_complex_script', filter_path,
+                    '-filter_complex_script', software_filter_path,
                     '-c:a', 'copy',
                     '-c:v', 'libx264',
                     '-preset', 'medium',
@@ -482,6 +549,8 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
                     '-pix_fmt', 'yuv420p',
                     output_path
                 ]
+                
+                logging.debug(f"Software encoding command: {' '.join(command)}")
                 
                 # Run FFmpeg with output capture
                 process = subprocess.Popen(
@@ -515,11 +584,11 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
                 logging.error(f"Software encoding execution failed: {str(e)}")
                 return False
             finally:
-                # Clean up the temporary filter file
+                # Clean up the software filter file
                 try:
-                    os.unlink(filter_path)
+                    os.unlink(software_filter_path)
                 except Exception as e:
-                    logging.warning(f"Failed to clean up filter file: {str(e)}")
+                    logging.warning(f"Failed to clean up software filter file: {str(e)}")
 
         except Exception as e:
             logging.error(f"Video processing execution failed: {str(e)}")
