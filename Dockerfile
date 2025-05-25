@@ -1,7 +1,13 @@
 FROM python:3.10.11
 
 # Fix Debian 12 (Bookworm) to include non-free repositories
-RUN sed -i 's/Components: main/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i 's/Components: main/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources; \
+    else \
+        echo "deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware" > /etc/apt/sources.list && \
+        echo "deb http://deb.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware" >> /etc/apt/sources.list && \
+        echo "deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware" >> /etc/apt/sources.list; \
+    fi
 
 # Install system dependencies and Intel Arc support
 RUN apt-get update && apt-get install -y \
