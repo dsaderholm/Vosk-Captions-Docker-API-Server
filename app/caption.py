@@ -228,7 +228,7 @@ def create_subtitle_file(word_timings: list, output_path: str) -> bool:
         return False
 
 def try_intel_arc_encoding(input_path: str, output_path: str, filter_complex: str, max_retries: int = 3) -> bool:
-    """Try Intel Arc hardware encoding with multiple fallback methods using filter files."""
+    """Try Intel Arc hardware encoding with CPU-side filtering for compatibility."""
     
     # Create temporary filter file to avoid "Argument list too long" error
     debug_dir = "/app/debug_files"
@@ -246,19 +246,23 @@ def try_intel_arc_encoding(input_path: str, output_path: str, filter_complex: st
         try:
             logging.info(f"🚀 Attempting Intel Arc hardware encoding (attempt {attempt + 1})...")
             
-            # Method 1: VA-API with filter file (most compatible for Intel Arc)
+            # Method 1: VA-API decode + CPU filter + VA-API encode (hybrid approach)
             try:
-                logging.info("🎯 Using VA-API with filter file (most compatible)...")
+                logging.info("🎯 Using VA-API hybrid (decode + CPU filter + encode)...")
                 
                 cmd = [
                     'ffmpeg',
                     '-y',
                     '-threads', '16',
+                    # Use VA-API for decoding only
                     '-hwaccel', 'vaapi',
                     '-hwaccel_device', '/dev/dri/renderD128',
                     '-i', input_path,
+                    # Process filters on CPU (drawtext doesn't work well with GPU memory)
                     '-filter_complex_script', filter_file_path,
+                    # Use VA-API for encoding
                     '-c:v', 'h264_vaapi',
+                    '-vaapi_device', '/dev/dri/renderD128',
                     '-qp', '23',
                     '-c:a', 'copy',
                     '-movflags', '+faststart',
@@ -268,29 +272,30 @@ def try_intel_arc_encoding(input_path: str, output_path: str, filter_complex: st
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
                 
                 if result.returncode == 0:
-                    logging.info("✅ Intel Arc VA-API encoding successful!")
+                    logging.info("✅ Intel Arc VA-API hybrid encoding successful!")
                     return True
                 else:
-                    logging.warning(f"⚠️ VA-API failed: {result.stderr[-200:] if result.stderr else 'Unknown error'}")
+                    logging.warning(f"⚠️ VA-API hybrid failed: {result.stderr[-200:] if result.stderr else 'Unknown error'}")
                     raise subprocess.CalledProcessError(result.returncode, cmd, result.stderr)
                     
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                logging.info(f"⚠️ VA-API failed, trying QSV with filter file...")
+                logging.info(f"⚠️ VA-API hybrid failed, trying CPU decode + VA-API encode...")
                 
-                # Method 2: QSV with filter file (requires proper drivers)
+                # Method 2: CPU decode + CPU filter + VA-API encode
                 try:
-                    logging.info("🔄 Using Intel Arc QSV with filter file...")
+                    logging.info("🔄 Using CPU decode + VA-API encode...")
                     
                     cmd = [
                         'ffmpeg',
                         '-y',
                         '-threads', '16',
-                        '-init_hw_device', 'qsv=hw',
                         '-i', input_path,
+                        # Process everything on CPU first
                         '-filter_complex_script', filter_file_path,
-                        '-c:v', 'h264_qsv',
-                        '-preset', 'medium',
-                        '-global_quality', '23',
+                        # Upload to GPU and encode with VA-API
+                        '-c:v', 'h264_vaapi',
+                        '-vaapi_device', '/dev/dri/renderD128',
+                        '-qp', '23',
                         '-c:a', 'copy',
                         '-movflags', '+faststart',
                         output_path
@@ -299,18 +304,18 @@ def try_intel_arc_encoding(input_path: str, output_path: str, filter_complex: st
                     result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
                     
                     if result.returncode == 0:
-                        logging.info("✅ Intel Arc QSV encoding successful!")
+                        logging.info("✅ CPU decode + VA-API encode successful!")
                         return True
                     else:
-                        logging.warning(f"⚠️ QSV failed - likely driver issue")
+                        logging.warning(f"⚠️ CPU+VA-API failed: {result.stderr[-200:] if result.stderr else 'Unknown error'}")
                         raise subprocess.CalledProcessError(result.returncode, cmd, result.stderr)
                         
                 except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                    logging.info(f"⚠️ QSV also failed, trying basic VA-API...")
+                    logging.info(f"⚠️ CPU+VA-API failed, trying QSV...")
                     
-                    # Method 3: Basic VA-API without hardware acceleration input
+                    # Method 3: QSV with CPU filtering
                     try:
-                        logging.info("🔄 Trying basic VA-API encoding...")
+                        logging.info("🔄 Trying QSV with CPU filtering...")
                         
                         cmd = [
                             'ffmpeg',
@@ -318,20 +323,21 @@ def try_intel_arc_encoding(input_path: str, output_path: str, filter_complex: st
                             '-threads', '16',
                             '-i', input_path,
                             '-filter_complex_script', filter_file_path,
-                            '-c:v', 'h264_vaapi',
-                            '-vaapi_device', '/dev/dri/renderD128',
-                            '-qp', '23',
+                            '-c:v', 'h264_qsv',
+                            '-preset', 'medium',
+                            '-global_quality', '23',
                             '-c:a', 'copy',
+                            '-movflags', '+faststart',
                             output_path
                         ]
                         
                         result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
                         
                         if result.returncode == 0:
-                            logging.info("✅ Basic VA-API encoding successful!")
+                            logging.info("✅ QSV encoding successful!")
                             return True
                         else:
-                            logging.warning(f"⚠️ Basic VA-API also failed")
+                            logging.warning(f"⚠️ QSV also failed")
                             raise subprocess.CalledProcessError(result.returncode, cmd, result.stderr)
                             
                     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
@@ -353,14 +359,12 @@ def try_intel_arc_encoding(input_path: str, output_path: str, filter_complex: st
                     pass
                 
                 # Specific Intel Arc troubleshooting
-                if "argument list too long" in error_msg.lower():
-                    logging.info("💡 Using filter file should fix this - check filter file creation")
-                elif "filter" in error_msg.lower() and "complex" in error_msg.lower():
-                    logging.info("💡 Filter parsing issue - check filter syntax")
+                if "auto_scale" in error_msg.lower() or "filter" in error_msg.lower():
+                    logging.info("💡 Filter incompatibility with VA-API - trying hybrid approach")
+                elif "function not implemented" in error_msg.lower():
+                    logging.info("💡 VA-API filter limitation - CPU filtering should work")
                 elif "qsv" in error_msg.lower() or "mfx" in error_msg.lower():
                     logging.info("💡 QSV failed - Intel drivers may need updating")
-                elif "vaapi" in error_msg.lower():
-                    logging.info("💡 VAAPI failed - trying software fallback")
                 elif "device" in error_msg.lower():
                     logging.info("💡 GPU device issue - check Docker device mapping")
             else:
