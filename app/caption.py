@@ -305,40 +305,8 @@ def try_intel_arc_encoding(input_path: str, output_path: str, filter_complex: st
                     logging.warning(f"⚠️ CPU+VA-API failed: {result.stderr[-200:] if result.stderr else 'Unknown error'}")
                     raise subprocess.CalledProcessError(result.returncode, cmd, result.stderr)
                     
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                logging.info(f"⚠️ VA-API hybrid failed, trying CPU decode + VA-API encode...")
-                
-                # Method 2: CPU decode + CPU filter + VA-API encode
-                try:
-                    logging.info("🔄 Using CPU decode + VA-API encode...")
-                    
-                    cmd = [
-                        'ffmpeg',
-                        '-y',
-                        '-threads', '16',
-                        '-i', input_path,
-                        # Process everything on CPU first
-                        '-filter_complex_script', filter_file_path,
-                        # Upload to GPU and encode with VA-API
-                        '-c:v', 'h264_vaapi',
-                        '-vaapi_device', '/dev/dri/renderD128',
-                        '-qp', '23',
-                        '-c:a', 'copy',
-                        '-movflags', '+faststart',
-                        output_path
-                    ]
-                    
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-                    
-                    if result.returncode == 0:
-                        logging.info("✅ CPU decode + VA-API encode successful!")
-                        return True
-                    else:
-                        logging.warning(f"⚠️ CPU+VA-API failed: {result.stderr[-200:] if result.stderr else 'Unknown error'}")
-                        raise subprocess.CalledProcessError(result.returncode, cmd, result.stderr)
-                        
                 except Exception as e:
-                    logging.info(f"⚠️ CPU+VA-API failed, trying QSV...")
+                    logging.info(f"⚠️ CPU filtering + VA-API encoding failed, trying QSV...")
                     
                     # Method 3: Test QSV capability first
                     if test_qsv_support():
