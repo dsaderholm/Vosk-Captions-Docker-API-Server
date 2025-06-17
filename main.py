@@ -5,12 +5,25 @@ import os
 import tempfile
 import asyncio
 from pathlib import Path
+import threading
 
 app = FastAPI()
+
+# Global lock to prevent concurrent processing
+processing_lock = threading.Lock()
+processing_in_progress = False
 
 # Constants 
 MODEL_PATH = "/app/vosk-model-en-us-0.22"
 FONT_PATH = "/app/fonts/Lexend-Bold.ttf"
+
+@app.get("/status")
+async def get_status():
+    """Get current processing status"""
+    return {
+        "processing_in_progress": processing_in_progress,
+        "service": "Vosk Captions API"
+    }
 
 @app.post("/caption/")
 async def create_caption(
@@ -18,8 +31,20 @@ async def create_caption(
    font_size: int = Form(200), 
    y_offset: int = Form(700)
 ):
-   if not video.filename.endswith(('.mp4', '.avi', '.mov')):
-       raise HTTPException(status_code=400, detail="Unsupported file format")
+   global processing_in_progress
+   
+   # Check if processing is already in progress
+   with processing_lock:
+       if processing_in_progress:
+           raise HTTPException(
+               status_code=429,
+               detail="Video processing already in progress. Please wait."
+           )
+       processing_in_progress = True
+   
+   try:
+       if not video.filename.endswith(('.mp4', '.avi', '.mov')):
+           raise HTTPException(status_code=400, detail="Unsupported file format")
    
    # Get original filename and extension
    original_filename = video.filename
@@ -76,6 +101,11 @@ async def create_caption(
        
        response.background = cleanup_files
        return response
+   
+   finally:
+       # Always reset the processing flag
+       with processing_lock:
+           processing_in_progress = False
 
 if __name__ == "__main__":
    import uvicorn
