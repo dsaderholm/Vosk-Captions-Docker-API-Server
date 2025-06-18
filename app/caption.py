@@ -305,45 +305,45 @@ def try_intel_arc_encoding(input_path: str, output_path: str, filter_complex: st
                     logging.warning(f"⚠️ CPU+VA-API failed: {result.stderr[-200:] if result.stderr else 'Unknown error'}")
                     raise subprocess.CalledProcessError(result.returncode, cmd, result.stderr)
                     
-                except Exception as e:
-                    logging.info(f"⚠️ CPU filtering + VA-API encoding failed, trying QSV...")
-                    
-                    # Method 3: Test QSV capability first
-                    if test_qsv_support():
-                        try:
-                            logging.info("🔄 Trying CPU filtering + QSV encoding...")
+            except Exception as e:
+                logging.info(f"⚠️ CPU filtering + VA-API encoding failed, trying QSV...")
+                
+                # Method 3: Test QSV capability first
+                if test_qsv_support():
+                    try:
+                        logging.info("🔄 Trying CPU filtering + QSV encoding...")
+                        
+                        cmd = [
+                            'ffmpeg', '-y',
+                            '-i', input_path,
+                            # Do filtering on CPU
+                            '-filter_complex_script', filter_file_path,
+                            # Then encode with QSV
+                            '-c:v', 'h264_qsv',
+                            '-preset', 'medium',
+                            '-global_quality', '23',
+                            '-c:a', 'copy',
+                            '-movflags', '+faststart',
+                            output_path
+                        ]
+                        
+                        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+                        
+                        if result.returncode == 0:
+                            logging.info("✅ CPU filtering + QSV encoding successful!")
+                            return True
+                        else:
+                            logging.warning(f"⚠️ CPU+QSV also failed: {result.stderr[-200:] if result.stderr else 'Unknown error'}")
+                            raise subprocess.CalledProcessError(result.returncode, cmd, result.stderr)
                             
-                            cmd = [
-                                'ffmpeg', '-y',
-                                '-i', input_path,
-                                # Do filtering on CPU
-                                '-filter_complex_script', filter_file_path,
-                                # Then encode with QSV
-                                '-c:v', 'h264_qsv',
-                                '-preset', 'medium',
-                                '-global_quality', '23',
-                                '-c:a', 'copy',
-                                '-movflags', '+faststart',
-                                output_path
-                            ]
-                            
-                            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-                            
-                            if result.returncode == 0:
-                                logging.info("✅ CPU filtering + QSV encoding successful!")
-                                return True
-                            else:
-                                logging.warning(f"⚠️ CPU+QSV also failed: {result.stderr[-200:] if result.stderr else 'Unknown error'}")
-                                raise subprocess.CalledProcessError(result.returncode, cmd, result.stderr)
-                                
-                        except Exception as e:
-                            logging.warning(f"⚠️ CPU filtering + QSV failed: {str(e)}")
-                            logging.warning(f"⚠️ All Intel hardware methods failed, falling back to software...")
-                            raise e
-                    else:
-                        logging.warning(f"⚠️ QSV basic test failed - skipping QSV encoding")
+                    except Exception as e:
+                        logging.warning(f"⚠️ CPU filtering + QSV failed: {str(e)}")
                         logging.warning(f"⚠️ All Intel hardware methods failed, falling back to software...")
                         raise e
+                else:
+                    logging.warning(f"⚠️ QSV basic test failed - skipping QSV encoding")
+                    logging.warning(f"⚠️ All Intel hardware methods failed, falling back to software...")
+                    raise e
             
         except Exception as e:
             logging.warning(f"❌ Intel Arc encoding attempt {attempt + 1} failed:")
