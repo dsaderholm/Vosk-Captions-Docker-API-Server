@@ -46,61 +46,61 @@ async def create_caption(
        if not video.filename.endswith(('.mp4', '.avi', '.mov')):
            raise HTTPException(status_code=400, detail="Unsupported file format")
    
-   # Get original filename and extension
-   original_filename = video.filename
-   file_extension = os.path.splitext(original_filename)[1]
-   
-   # Create temporary files for processing
-   with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_input, \
-        tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_output:
+       # Get original filename and extension
+       original_filename = video.filename
+       file_extension = os.path.splitext(original_filename)[1]
        
-       # Save uploaded video
-       content = await video.read()
-       temp_input.write(content)
-       temp_input.flush()
-       
-       # Process video
-       success = process_video(
-           temp_input.name,
-           temp_output.name,
-           MODEL_PATH,
-           FONT_PATH,
-           font_size,
-           y_offset
-       )
-       
-       if not success:
-           # Clean up files before raising exception
-           os.unlink(temp_input.name)
-           os.unlink(temp_output.name)
-           raise HTTPException(status_code=500, detail="Failed to process video")
-       
-       # Create async cleanup function
-       async def cleanup_files():
-           try:
-               # Use asyncio to run file deletion in a thread pool
-               await asyncio.get_event_loop().run_in_executor(
-                   None, os.unlink, temp_input.name
-               )
-               await asyncio.get_event_loop().run_in_executor(
-                   None, os.unlink, temp_output.name
-               )
-           except Exception as e:
-               print(f"Cleanup error: {str(e)}")
-       
-       # Properly format filename in Content-Disposition header
-       headers = {
-           'Content-Type': 'video/mp4',
-           'Content-Disposition': f'attachment; filename="{Path(original_filename).name}"'
-       }
+       # Create temporary files for processing
+       with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_input, \
+            tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_output:
+           
+           # Save uploaded video
+           content = await video.read()
+           temp_input.write(content)
+           temp_input.flush()
+           
+           # Process video
+           success = process_video(
+               temp_input.name,
+               temp_output.name,
+               MODEL_PATH,
+               FONT_PATH,
+               font_size,
+               y_offset
+           )
+           
+           if not success:
+               # Clean up files before raising exception
+               os.unlink(temp_input.name)
+               os.unlink(temp_output.name)
+               raise HTTPException(status_code=500, detail="Failed to process video")
+           
+           # Create async cleanup function
+           async def cleanup_files():
+               try:
+                   # Use asyncio to run file deletion in a thread pool
+                   await asyncio.get_event_loop().run_in_executor(
+                       None, os.unlink, temp_input.name
+                   )
+                   await asyncio.get_event_loop().run_in_executor(
+                       None, os.unlink, temp_output.name
+                   )
+               except Exception as e:
+                   print(f"Cleanup error: {str(e)}")
+           
+           # Properly format filename in Content-Disposition header
+           headers = {
+               'Content-Type': 'video/mp4',
+               'Content-Disposition': f'attachment; filename="{Path(original_filename).name}"'
+           }
 
-       response = FileResponse(
-           path=temp_output.name,
-           headers=headers
-       )
-       
-       response.background = cleanup_files
-       return response
+           response = FileResponse(
+               path=temp_output.name,
+               headers=headers
+           )
+           
+           response.background = cleanup_files
+           return response
    
    finally:
        # Always reset the processing flag
