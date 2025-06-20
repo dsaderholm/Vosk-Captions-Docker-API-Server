@@ -454,14 +454,21 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
             # Optimized software encoding: Guaranteed to work with subtitles
             logging.info("🎯 Using optimized CPU encoding with subtitle support...")
             
+            # Create filter file to avoid "Argument list too long" error
+            software_filter_path = os.path.join(debug_dir, "software_filter.txt")
+            
             try:
+                # Write filter to file to avoid command line length issues
+                with open(software_filter_path, 'w') as f:
+                    f.write(filter_complex)
+                
                 # Optimized command for subtitle rendering
                 command = [
                     'ffmpeg',
                     '-y',
                     '-i', input_path,
-                    # Optimized settings for subtitle rendering
-                    '-vf', filter_complex,
+                    # Use filter file to avoid argument length limits
+                    '-filter_complex_script', software_filter_path,
                     '-c:a', 'copy',
                     '-c:v', 'libx264',
                     # Optimized for speed with good quality
@@ -510,6 +517,12 @@ def process_video(input_path: str, output_path: str, model_path: str, font_path:
             except Exception as e:
                 logging.error(f"Software encoding execution failed: {str(e)}")
                 return False
+            finally:
+                # Clean up the software filter file
+                try:
+                    os.unlink(software_filter_path)
+                except Exception as e:
+                    logging.debug(f"Failed to clean up software filter file: {str(e)}")
 
         except Exception as e:
             logging.error(f"Video processing execution failed: {str(e)}")
