@@ -88,10 +88,28 @@ async def create_caption(
                except Exception as e:
                    print(f"Cleanup error: {str(e)}")
            
+           # Sanitize filename for HTTP headers (remove Unicode characters)
+           import re
+           import unicodedata
+           
+           def sanitize_filename(filename):
+               """Remove or replace characters that can't be encoded in latin-1"""
+               # Normalize Unicode characters
+               filename = unicodedata.normalize('NFD', filename)
+               # Remove combining characters and non-ASCII
+               filename = ''.join(c for c in filename if ord(c) < 128)
+               # Replace any remaining problematic characters
+               filename = re.sub(r'[^\w\s.-]', '_', filename)
+               # Clean up multiple underscores/spaces
+               filename = re.sub(r'[_\s]+', '_', filename)
+               return filename
+           
+           safe_filename = sanitize_filename(Path(original_filename).name)
+           
            # Properly format filename in Content-Disposition header
            headers = {
                'Content-Type': 'video/mp4',
-               'Content-Disposition': f'attachment; filename="{Path(original_filename).name}"'
+               'Content-Disposition': f'attachment; filename="{safe_filename}"'
            }
 
            response = FileResponse(
