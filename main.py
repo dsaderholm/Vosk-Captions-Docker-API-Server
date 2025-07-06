@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import FileResponse
 from app.caption import process_video
 import os
@@ -6,8 +6,34 @@ import tempfile
 import asyncio
 from pathlib import Path
 import threading
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+# File size limits (500MB max)
+MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB in bytes
+
+@app.middleware("http")
+async def limit_upload_size(request: Request, call_next):
+    """Middleware to limit upload size"""
+    if request.method == "POST" and request.url.path.startswith("/caption"):
+        # Check Content-Length header
+        content_length = request.headers.get("content-length")
+        if content_length:
+            content_length = int(content_length)
+            if content_length > MAX_FILE_SIZE * 1.1:  # Allow 10% overhead for multipart
+                logger.warning(f"Upload too large: {content_length} bytes")
+                raise HTTPException(
+                    status_code=413, 
+                    detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)}MB"
+                )
+    
+    response = await call_next(request)
+    return response
 
 # Global lock to prevent concurrent processing
 processing_lock = threading.Lock()
@@ -22,16 +48,20 @@ async def get_status():
     """Get current processing status"""
     return {
         "processing_in_progress": processing_in_progress,
-        "service": "Vosk Captions API"
+        "service": "Vosk Captions API",
+        "max_file_size_mb": MAX_FILE_SIZE // (1024*1024)
     }
 
-@app.post("/caption/")
+@app.post("/caption")
+@app.post("/caption/")  # Support both with and without trailing slash
 async def create_caption(
    video: UploadFile = File(...),
    font_size: int = Form(200), 
    y_offset: int = Form(700)
 ):
    global processing_in_progress
+   
+   logger.info(f"Received upload request: {video.filename}, content_type: {video.content_type}")
    
    # Check if processing is already in progress
    with processing_lock:
@@ -43,8 +73,12 @@ async def create_caption(
        processing_in_progress = True
    
    try:
-       if not video.filename.endswith(('.mp4', '.avi', '.mov')):
-           raise HTTPException(status_code=400, detail="Unsupported file format")
+       # Validate file type
+       if not video.filename or not video.filename.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
+           raise HTTPException(
+               status_code=400, 
+               detail="Unsupported file format. Please use MP4, AVI, MOV, MKV, or WebM"
+           )
    
        # Get original filename and extension
        original_filename = video.filename
@@ -54,10 +88,27 @@ async def create_caption(
        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_input, \
             tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_output:
            
-           # Save uploaded video
-           content = await video.read()
-           temp_input.write(content)
+           # Save uploaded video with chunked reading to handle large files
+           logger.info("Reading uploaded video file...")
+           file_size = 0
+           chunk_size = 1024 * 1024  # 1MB chunks
+           
+           while chunk := await video.read(chunk_size):
+               if not chunk:
+                   break
+               file_size += len(chunk)
+               
+               # Check file size during upload
+               if file_size > MAX_FILE_SIZE:
+                   raise HTTPException(
+                       status_code=413,
+                       detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)}MB"
+                   )
+               
+               temp_input.write(chunk)
+           
            temp_input.flush()
+           logger.info(f"Successfully saved {file_size} bytes to temporary file")
            
            # Process video
            success = process_video(
@@ -120,6 +171,12 @@ async def create_caption(
            response.background = cleanup_files
            return response
    
+   except HTTPException as e:
+       # Re-raise HTTP exceptions as-is
+       raise e
+   except Exception as e:
+       logger.error(f"Unexpected error during video processing: {str(e)}")
+       raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
    finally:
        # Always reset the processing flag
        with processing_lock:
